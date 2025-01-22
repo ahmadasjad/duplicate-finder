@@ -64,7 +64,7 @@ def display_file_groups(duplicates):
                 
             with col3:
                 # File details in single line
-                st.markdown(f"**File:** {file_info['name']} \n\n **Ext:** {file_info['extension']} \n\n **Size:** {human_size}")
+                st.markdown(f"**File:** {file_info['name']} \n\n **Path:** {file} \n\n **Ext:** {file_info['extension']} \n\n **Size:** {human_size} \n\n **Created:** {file_info['created']} \n\n **Modified:** {file_info['modified']}")
 
     # Perform deletion
     if selected_files:
