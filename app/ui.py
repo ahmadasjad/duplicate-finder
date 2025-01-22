@@ -1,7 +1,7 @@
 import streamlit as st
 from app.file_operations import scan_directory, delete_selected_files
 from app.utils import get_file_info, human_readable_size
-from app.preview import preview_file
+from app.preview import preview_file_inline
 
 def run_app():
     """
@@ -43,26 +43,24 @@ def display_file_groups(duplicates):
             file_info = get_file_info(file)
             human_size = human_readable_size(file_info["size"])
 
-            # File details
-            st.markdown(
-                f"""
-                **File:** {file_info['name']}  
-                **Extension:** {file_info['extension']}  
-                **Size:** {human_size}
-                """
-            )
-
-            # Preview option
-            if st.button(f"Preview: {file_info['name']}", key=f"preview-{file}"):
-                preview_file(file)
-
-            # Checkbox for deletion
-            if st.checkbox(f"Mark for deletion: {file_info['name']}", key=f"delete-{file}"):
-                selected_files.append(file)
+            # Create 3-column layout
+            col1, col2, col3 = st.columns([0.5, 1, 2])
+            
+            with col1:
+                # Checkbox for deletion
+                if st.checkbox(f"Delete", key=f"delete-{file}"):
+                    selected_files.append(file)
+                    
+            with col2:
+                # Inline preview
+                preview_file_inline(file)
+                
+            with col3:
+                # File details in single line
+                st.markdown(f"**File:** {file_info['name']} \n\n **Ext:** {file_info['extension']} \n\n **Size:** {human_size}")
 
     # Perform deletion
     if selected_files:
         if st.button("Delete Selected Files"):
             delete_selected_files(selected_files)
             st.success(f"Deleted {len(selected_files)} files.")
-
