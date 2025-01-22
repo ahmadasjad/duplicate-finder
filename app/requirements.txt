@@ -1,0 +1,9 @@
+streamlit
+pandas
+# Pillow
+
+
+streamlit
+Pillow
+PyMuPDF
+opencv-python

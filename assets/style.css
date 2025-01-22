@@ -1,0 +1,7 @@
+/* Example CSS to style Streamlit */
+.stButton > button {
+    background-color: #4CAF50;
+    color: white;
+    font-size: 16px;
+    border-radius: 5px;
+}
