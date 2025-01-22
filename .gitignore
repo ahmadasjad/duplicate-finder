@@ -11,3 +11,5 @@ venv/
 *.log
 
 .idea/
+
+app/debug/
