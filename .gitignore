@@ -9,3 +9,5 @@ venv/
 
 # Docker files
 *.log
+
+.idea/
