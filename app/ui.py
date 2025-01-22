@@ -9,6 +9,10 @@ def run_app():
     """
     st.title("Duplicate File Finder")
 
+    # Initialize session state
+    if 'duplicates' not in st.session_state:
+        st.session_state.duplicates = None
+
     # Input directory for scanning
     directory = st.text_input("Enter directory path:")
     if not directory:
@@ -17,12 +21,15 @@ def run_app():
 
     # Scan for duplicates
     if st.button("Scan for Duplicates"):
-        duplicates = scan_directory(directory)
-        if duplicates:
-            st.success(f"Found {len(duplicates)} groups of duplicates.")
-            display_file_groups(duplicates)
+        st.session_state.duplicates = scan_directory(directory)
+        if st.session_state.duplicates:
+            st.success(f"Found {len(st.session_state.duplicates)} groups of duplicates.")
         else:
             st.info("No duplicate files found.")
+
+    # Display duplicates if they exist
+    if st.session_state.duplicates:
+        display_file_groups(st.session_state.duplicates)
 
 def display_file_groups(duplicates):
     """
