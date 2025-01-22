@@ -3,7 +3,8 @@ pandas
 # Pillow
 
 
-streamlit
+# streamlit
 Pillow
 PyMuPDF
 opencv-python
+pdfplumber
