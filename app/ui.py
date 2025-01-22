@@ -41,9 +41,42 @@ def display_file_groups(duplicates):
         st.write("No duplicates to display.")
         return
 
+    # Initialize pagination state
+    if 'page' not in st.session_state:
+        st.session_state.page = 0
+        
+    # Pagination controls
+    groups = list(duplicates.values())
+    total_groups = len(groups)
+    groups_per_page = 1
+    total_pages = (total_groups + groups_per_page - 1) // groups_per_page
+    
+    col1, col2 = st.columns([1, 3])
+    with col1:
+        st.write(f"Page {st.session_state.page + 1} of {total_pages}")
+    with col2:
+        # Only show Previous button if not on first page
+        if st.session_state.page > 0:
+            if st.button("Previous"):
+                st.session_state.page -= 1
+                st.rerun()
+        
+        # Only show Next button if not on last page
+        if st.session_state.page < total_pages - 1:
+            if st.button("Next"):
+                st.session_state.page += 1
+                st.rerun()
+
     selected_files = []  # Collect files marked for deletion
 
-    for group_id, files in enumerate(duplicates.values(), start=1):
+    # Display groups for current page
+    start_idx = st.session_state.page * groups_per_page
+    end_idx = min(start_idx + groups_per_page, total_groups)
+    
+    for group_idx in range(start_idx, end_idx):
+        files = groups[group_idx]
+        group_id = group_idx + 1
+        
         st.subheader(f"Group {group_id}")
 
         for file in files:
