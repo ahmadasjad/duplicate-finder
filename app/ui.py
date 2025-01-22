@@ -3,8 +3,18 @@ from app.file_operations import scan_directory, delete_selected_files
 from app.preview import preview_file
 
 def run_app():
-    st.title("File Management Application")
+    """
+    Main function to run the Streamlit app.
+    """
+    st.title("Duplicate File Finder")
+
+    # Input directory for scanning
     directory = st.text_input("Enter directory path:")
+    if not directory:
+        st.warning("Please enter a directory to scan.")
+        return
+
+    # Scan for duplicates
     if st.button("Scan for Duplicates"):
         duplicates = scan_directory(directory)
         display_file_groups(duplicates)
