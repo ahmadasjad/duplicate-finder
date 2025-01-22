@@ -44,12 +44,30 @@ def display_file_groups(duplicates):
     # Initialize pagination state
     if 'page' not in st.session_state:
         st.session_state.page = 0
+    if 'per_page' not in st.session_state:
+        st.session_state.per_page = 5
         
     # Pagination controls
     groups = list(duplicates.values())
     total_groups = len(groups)
-    groups_per_page = 1
-    total_pages = (total_groups + groups_per_page - 1) // groups_per_page
+    
+    # Sidebar controls
+    with st.sidebar:
+        # Per page selection
+        per_page_options = [1, 5, 10, 20]
+        new_per_page = st.selectbox(
+            "Items per page",
+            options=per_page_options,
+            index=per_page_options.index(st.session_state.per_page)
+        )
+        
+        # Reset page if per_page changes
+        if new_per_page != st.session_state.per_page:
+            st.session_state.per_page = new_per_page
+            st.session_state.page = 0
+            st.rerun()
+        
+    total_pages = (total_groups + st.session_state.per_page - 1) // st.session_state.per_page
     
     col1, col2 = st.columns([1, 3])
     with col1:
@@ -70,8 +88,8 @@ def display_file_groups(duplicates):
     selected_files = []  # Collect files marked for deletion
 
     # Display groups for current page
-    start_idx = st.session_state.page * groups_per_page
-    end_idx = min(start_idx + groups_per_page, total_groups)
+    start_idx = st.session_state.page * st.session_state.per_page
+    end_idx = min(start_idx + st.session_state.per_page, total_groups)
     
     for group_idx in range(start_idx, end_idx):
         files = groups[group_idx]
