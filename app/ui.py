@@ -69,15 +69,26 @@ def display_file_groups(duplicates):
     # Perform deletion
     if selected_files:
         if st.button("Delete Selected Files"):
-            delete_selected_files(selected_files)
-            st.success(f"Deleted {len(selected_files)} files.")
+            # Check if any group would be completely deleted
+            deletion_allowed = True
+            for group_id, files in duplicates.items():
+                # Count how many files in this group are selected for deletion
+                selected_in_group = sum(1 for f in files if f in selected_files)
+                if selected_in_group == len(files):
+                    st.error(f"Cannot delete all files in Group {group_id}. At least one file must remain.")
+                    deletion_allowed = False
+                    break
             
-            # Remove deleted files from duplicates
-            for group_id, files in list(duplicates.items()):
-                duplicates[group_id] = [f for f in files if f not in selected_files]
-                if not duplicates[group_id] or len(duplicates[group_id]) == 1:  # Remove empty groups
-                    del duplicates[group_id]
-            
-            # Update session state and trigger rerun
-            st.session_state.duplicates = duplicates
-            st.rerun()
+            if deletion_allowed:
+                delete_selected_files(selected_files)
+                st.success(f"Deleted {len(selected_files)} files.")
+                
+                # Remove deleted files from duplicates
+                for group_id, files in list(duplicates.items()):
+                    duplicates[group_id] = [f for f in files if f not in selected_files]
+                    if not duplicates[group_id] or len(duplicates[group_id]) == 1:  # Remove empty groups
+                        del duplicates[group_id]
+                
+                # Update session state and trigger rerun
+                st.session_state.duplicates = duplicates
+                st.rerun()
