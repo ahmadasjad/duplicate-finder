@@ -114,8 +114,14 @@ def display_file_groups(duplicates):
                 preview_file_inline(file)
                 
             with col3:
-                # File details in single line
-                st.markdown(f"**File:** {file_info['name']} \n\n **Path:** {file} \n\n **Ext:** {file_info['extension']} \n\n **Size:** {human_size} \n\n **Created:** {file_info['created']} \n\n **Modified:** {file_info['modified']}")
+                # File details with custom spacing
+                st.markdown(f"""
+                **File:** {file_info['name']}  
+                **Path:** {file}  
+                **Size:** {human_size}  <span style="display: inline-block; width: 1cm;"></span>**Ext:** {file_info['extension']}  
+                **Created:** {file_info['created']}  
+                **Modified:** {file_info['modified']}
+                """, unsafe_allow_html=True)
 
     # Perform deletion
     if selected_files:
