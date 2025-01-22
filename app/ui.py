@@ -71,3 +71,13 @@ def display_file_groups(duplicates):
         if st.button("Delete Selected Files"):
             delete_selected_files(selected_files)
             st.success(f"Deleted {len(selected_files)} files.")
+            
+            # Remove deleted files from duplicates
+            for group_id, files in list(duplicates.items()):
+                duplicates[group_id] = [f for f in files if f not in selected_files]
+                if not duplicates[group_id] or len(duplicates[group_id]) == 1:  # Remove empty groups
+                    del duplicates[group_id]
+            
+            # Update session state and trigger rerun
+            st.session_state.duplicates = duplicates
+            st.rerun()
