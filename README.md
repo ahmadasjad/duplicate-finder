@@ -11,6 +11,28 @@ A Streamlit-based application to find and manage duplicate files in a directory.
 
 ## Installation
 
+### Google Colab Installation
+
+1. **Get your ngrok auth token**
+   - Create an account at https://ngrok.com/
+   - Get your auth token from the dashboard
+   - In Google Colab, go to `Tools` → `Secrets` → `Add a new secret`
+   - Add a secret named `NGROCK_TOKEN` with your ngrok token as the value
+
+2. **Open the Colab Notebook**
+   - Open [duplicate_finder.ipynb](duplicate_finder.ipynb) in Google Colab
+
+3. **Run the Setup Cells**
+   - The notebook will:
+     - Install required dependencies
+     - Clone the repository
+     - Set up ngrok authentication
+     - Launch the Streamlit app
+
+4. **Access the Application**
+   - After running the notebook, you'll see a public URL in the output
+   - Click the URL to access the running application
+
 ### Manual Installation
 
 1. Clone this repository:
