@@ -28,6 +28,7 @@ def run_app():
     with col2:
         exclude_system = st.checkbox("Exclude system files", value=True)
         min_size = st.number_input("Minimum file size (KB)", min_value=0, value=0)
+        max_size = st.number_input("Maximum file size (KB)", min_value=0, value=0)
 
     # Scan for duplicates
     if st.button("Scan for Duplicates"):
@@ -36,7 +37,8 @@ def run_app():
             exclude_shortcuts=exclude_shortcuts,
             exclude_hidden=exclude_hidden,
             exclude_system=exclude_system,
-            min_size_kb=min_size
+            min_size_kb=min_size,
+            max_size_kb=max_size
         )
         if st.session_state.duplicates:
             st.success(f"Found {len(st.session_state.duplicates)} groups of duplicates.")

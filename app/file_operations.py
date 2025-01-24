@@ -41,7 +41,7 @@ def is_file_for_system(file_path, file):
             return False
     return False
 
-def scan_directory(directory, exclude_shortcuts=True, exclude_hidden=True, exclude_system=True, min_size_kb=0):
+def scan_directory(directory, exclude_shortcuts=True, exclude_hidden=True, exclude_system=True, min_size_kb=0, max_size_kb=0):
     """Scan directory and identify duplicates with optional filters.
     
     Args:
@@ -50,6 +50,7 @@ def scan_directory(directory, exclude_shortcuts=True, exclude_hidden=True, exclu
         exclude_hidden: Whether to exclude hidden files
         exclude_system: Whether to exclude system files
         min_size_kb: Minimum file size in KB to include
+        max_size_kb: Maximum file size in KB to include (0 means no limit)
         
     Returns:
         Dictionary of duplicate file groups
@@ -69,10 +70,12 @@ def scan_directory(directory, exclude_shortcuts=True, exclude_hidden=True, exclu
             if exclude_system and is_file_for_system(file_path, file):
                 continue
                     
-            # Check minimum size
+            # Check file size
             try:
                 file_size = os.path.getsize(file_path) / 1024  # Convert to KB
                 if file_size < min_size_kb:
+                    continue
+                if max_size_kb > 0 and file_size > max_size_kb:
                     continue
             except OSError:
                 continue
