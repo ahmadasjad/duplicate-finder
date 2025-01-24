@@ -19,9 +19,25 @@ def run_app():
         st.warning("Please enter a directory to scan.")
         return
 
+    # Filter options
+    st.subheader("Scan Filters")
+    col1, col2 = st.columns(2)
+    with col1:
+        exclude_shortcuts = st.checkbox("Exclude shortcuts and symlinks", value=True)
+        exclude_hidden = st.checkbox("Exclude hidden files", value=True)
+    with col2:
+        exclude_system = st.checkbox("Exclude system files", value=True)
+        min_size = st.number_input("Minimum file size (KB)", min_value=0, value=0)
+
     # Scan for duplicates
     if st.button("Scan for Duplicates"):
-        st.session_state.duplicates = scan_directory(directory)
+        st.session_state.duplicates = scan_directory(
+            directory,
+            exclude_shortcuts=exclude_shortcuts,
+            exclude_hidden=exclude_hidden,
+            exclude_system=exclude_system,
+            min_size_kb=min_size
+        )
         if st.session_state.duplicates:
             st.success(f"Found {len(st.session_state.duplicates)} groups of duplicates.")
         else:

@@ -9,16 +9,45 @@ def get_file_hash(file_path):
             hash_obj.update(chunk)
     return hash_obj.hexdigest()
 
-def scan_directory(directory):
-    """Scan directory and identify duplicates."""
+def scan_directory(directory, exclude_shortcuts=True, exclude_hidden=True, exclude_system=True, min_size_kb=0):
+    """Scan directory and identify duplicates with optional filters.
+    
+    Args:
+        directory: Path to directory to scan
+        exclude_shortcuts: Whether to exclude shortcut files (.lnk on Windows, .desktop on Linux) and symbolic links
+        exclude_hidden: Whether to exclude hidden files
+        exclude_system: Whether to exclude system files
+        min_size_kb: Minimum file size in KB to include
+        
+    Returns:
+        Dictionary of duplicate file groups
+    """
     file_dict = {}
     for root, _, files in os.walk(directory):
         for file in files:
             file_path = os.path.join(root, file)
+            
+            # Skip files based on filters
+            if exclude_shortcuts and (
+                os.path.islink(file_path) 
+                or file.lower().endswith('.lnk')
+                # or file.lower().endswith('.desktop')
+            ):
+                continue
+            # Check minimum size
+            try:
+                file_size = os.path.getsize(file_path) / 1024  # Convert to KB
+                if file_size < min_size_kb:
+                    continue
+            except OSError:
+                continue
+                
+            # Add to duplicates if it passes all filters
             file_hash = get_file_hash(file_path)
             if file_hash not in file_dict:
                 file_dict[file_hash] = []
             file_dict[file_hash].append(file_path)
+            
     return {k: v for k, v in file_dict.items() if len(v) > 1}
 
 def delete_selected_files(selected_files):
