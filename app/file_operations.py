@@ -9,8 +9,8 @@ def get_file_hash(file_path):
             hash_obj.update(chunk)
     return hash_obj.hexdigest()
 
-def is_file_shourtcut(file_path, file):
-    """Check if a file is hidden."""
+def is_file_shortcut(file_path, file):
+    """Check if a file is a shortcut or symlink."""
     return (
         os.path.islink(file_path) 
         or file.lower().endswith('.lnk')
@@ -18,27 +18,27 @@ def is_file_shourtcut(file_path, file):
     )
     
 def is_file_hidden(file_path, file):
-    # Check for Linux/Unix (files starting with a dot are hidden)
-    if os.name != 'nt':  # Not Windows
+    """Check if a file is hidden."""
+    if os.name != 'nt':  # Unix-like systems
         return file.startswith('.')
-    else:  # Windows
-        # Check for hidden attribute in Windows
+    
+    # Windows systems
+    try:
         import ctypes
         attrs = ctypes.windll.kernel32.GetFileAttributesW(file_path)
-        if attrs == -1:
-            raise FileNotFoundError(f"{file_path} does not exist")
-        return bool(attrs & 2)  # FILE_ATTRIBUTE_HIDDEN = 2
+        return attrs != -1 and bool(attrs & 2)  # FILE_ATTRIBUTE_HIDDEN = 2
+    except (OSError, AttributeError):
+        return False
     
 def is_file_for_system(file_path, file):
+    """Check if a file is a system file."""
     if os.name == 'nt' and os.path.isfile(file_path):
-        import ctypes
         try:
+            import ctypes
             attrs = ctypes.windll.kernel32.GetFileAttributesW(file_path)
-            if attrs & 0x4:  # SYSTEM attribute
-                return True
-        except:
-            pass
-            
+            return attrs != -1 and bool(attrs & 0x4)  # FILE_ATTRIBUTE_SYSTEM = 0x4
+        except (OSError, AttributeError):
+            return False
     return False
 
 def scan_directory(directory, exclude_shortcuts=True, exclude_hidden=True, exclude_system=True, min_size_kb=0):
@@ -60,7 +60,7 @@ def scan_directory(directory, exclude_shortcuts=True, exclude_hidden=True, exclu
             file_path = os.path.join(root, file)
             
             # Skip files based on filters
-            if exclude_shortcuts and is_file_shourtcut(file_path, file):
+            if exclude_shortcuts and is_file_shortcut(file_path, file):
                 continue
                 
             if exclude_hidden and is_file_hidden(file_path, file):
