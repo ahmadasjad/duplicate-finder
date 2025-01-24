@@ -9,6 +9,16 @@ def get_file_hash(file_path):
             hash_obj.update(chunk)
     return hash_obj.hexdigest()
 
+def is_file_shourtcut(file_path, file):
+    """Check if a file is hidden."""
+    return (
+        os.path.islink(file_path) 
+        or file.lower().endswith('.lnk')
+        # or file.lower().endswith('.desktop')
+    )
+
+
+
 def scan_directory(directory, exclude_shortcuts=True, exclude_hidden=True, exclude_system=True, min_size_kb=0):
     """Scan directory and identify duplicates with optional filters.
     
@@ -28,11 +38,7 @@ def scan_directory(directory, exclude_shortcuts=True, exclude_hidden=True, exclu
             file_path = os.path.join(root, file)
             
             # Skip files based on filters
-            if exclude_shortcuts and (
-                os.path.islink(file_path) 
-                or file.lower().endswith('.lnk')
-                # or file.lower().endswith('.desktop')
-            ):
+            if exclude_shortcuts and is_file_shourtcut(file_path, file):
                 continue
             # Check minimum size
             try:
