@@ -16,7 +16,18 @@ def is_file_shourtcut(file_path, file):
         or file.lower().endswith('.lnk')
         # or file.lower().endswith('.desktop')
     )
-
+    
+def is_file_hidden(file_path, file):
+    # Check for Linux/Unix (files starting with a dot are hidden)
+    if os.name != 'nt':  # Not Windows
+        return file.startswith('.')
+    else:  # Windows
+        # Check for hidden attribute in Windows
+        import ctypes
+        attrs = ctypes.windll.kernel32.GetFileAttributesW(file_path)
+        if attrs == -1:
+            raise FileNotFoundError(f"{file_path} does not exist")
+        return bool(attrs & 2)  # FILE_ATTRIBUTE_HIDDEN = 2
 
 
 def scan_directory(directory, exclude_shortcuts=True, exclude_hidden=True, exclude_system=True, min_size_kb=0):
@@ -40,6 +51,10 @@ def scan_directory(directory, exclude_shortcuts=True, exclude_hidden=True, exclu
             # Skip files based on filters
             if exclude_shortcuts and is_file_shourtcut(file_path, file):
                 continue
+                
+            if exclude_hidden and is_file_hidden(file_path, file):
+                continue
+                
             # Check minimum size
             try:
                 file_size = os.path.getsize(file_path) / 1024  # Convert to KB
