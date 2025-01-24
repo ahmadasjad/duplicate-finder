@@ -28,7 +28,18 @@ def is_file_hidden(file_path, file):
         if attrs == -1:
             raise FileNotFoundError(f"{file_path} does not exist")
         return bool(attrs & 2)  # FILE_ATTRIBUTE_HIDDEN = 2
-
+    
+def is_file_for_system(file_path, file):
+    if os.name == 'nt' and os.path.isfile(file_path):
+        import ctypes
+        try:
+            attrs = ctypes.windll.kernel32.GetFileAttributesW(file_path)
+            if attrs & 0x4:  # SYSTEM attribute
+                return True
+        except:
+            pass
+            
+    return False
 
 def scan_directory(directory, exclude_shortcuts=True, exclude_hidden=True, exclude_system=True, min_size_kb=0):
     """Scan directory and identify duplicates with optional filters.
@@ -55,6 +66,9 @@ def scan_directory(directory, exclude_shortcuts=True, exclude_hidden=True, exclu
             if exclude_hidden and is_file_hidden(file_path, file):
                 continue
                 
+            if exclude_system and is_file_for_system(file_path, file):
+                continue
+                    
             # Check minimum size
             try:
                 file_size = os.path.getsize(file_path) / 1024  # Convert to KB
