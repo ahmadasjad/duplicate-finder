@@ -1,10 +1,13 @@
 streamlit
 pandas
-# Pillow
-
-
-# streamlit
 Pillow
 PyMuPDF
 opencv-python
 pdfplumber
+
+# Cloud storage providers (optional - uncomment when implementing)
+# google-api-python-client
+# google-auth-httplib2
+# google-auth-oauthlib
+# dropbox
+# msal

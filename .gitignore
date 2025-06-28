@@ -13,3 +13,5 @@ venv/
 .idea/
 
 app/debug/
+/test_data/
+/test_output/

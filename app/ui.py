@@ -2,6 +2,7 @@ import streamlit as st
 from app.file_operations import scan_directory, delete_selected_files
 from app.utils import get_file_info, human_readable_size
 from app.preview import preview_file_inline
+from app.storage_providers import get_storage_providers, get_provider_info
 
 def run_app():
     """
@@ -12,9 +13,49 @@ def run_app():
     # Initialize session state
     if 'duplicates' not in st.session_state:
         st.session_state.duplicates = None
+    if 'selected_provider' not in st.session_state:
+        st.session_state.selected_provider = None
 
-    # Input directory for scanning
-    directory = st.text_input("Enter directory path:")
+    # Storage provider selection
+    st.subheader("Select Storage Provider")
+    providers = get_storage_providers()
+    provider_info = get_provider_info()
+    
+    if not providers:
+        st.error("No storage providers are currently enabled. Please check the configuration.")
+        return
+        
+    provider_names = list(providers.keys())
+    
+    # Show provider descriptions
+    for name in provider_names:
+        info = provider_info.get(name, {})
+        description = info.get("description", "No description available")
+        st.markdown(f"**{name}:** {description}")
+    
+    st.markdown("---")
+    
+    selected_provider_name = st.selectbox(
+        "Choose where to scan for duplicates:",
+        provider_names,
+        index=0
+    )
+    
+    # Get the selected provider instance
+    selected_provider = providers[selected_provider_name]
+    st.session_state.selected_provider = selected_provider
+    
+    # Show provider-specific authentication if needed
+    if not selected_provider.authenticate():
+        st.warning(f"Authentication required for {selected_provider_name}")
+        return
+    
+    # Get directory input widget from provider
+    directory_widget = selected_provider.get_directory_input_widget()
+    if directory_widget is None:
+        return  # Provider not ready (e.g., needs authentication)
+    
+    directory = directory_widget
     if not directory:
         st.warning("Please enter a directory to scan.")
         return
@@ -32,14 +73,15 @@ def run_app():
 
     # Scan for duplicates
     if st.button("Scan for Duplicates"):
-        st.session_state.duplicates = scan_directory(
-            directory,
-            exclude_shortcuts=exclude_shortcuts,
-            exclude_hidden=exclude_hidden,
-            exclude_system=exclude_system,
-            min_size_kb=min_size,
-            max_size_kb=max_size
-        )
+        with st.spinner("Scanning for duplicates..."):
+            st.session_state.duplicates = selected_provider.scan_directory(
+                directory,
+                exclude_shortcuts=exclude_shortcuts,
+                exclude_hidden=exclude_hidden,
+                exclude_system=exclude_system,
+                min_size_kb=min_size,
+                max_size_kb=max_size
+            )
         if st.session_state.duplicates:
             st.success(f"Found {len(st.session_state.duplicates)} groups of duplicates.")
         else:
@@ -47,12 +89,13 @@ def run_app():
 
     # Display duplicates if they exist
     if st.session_state.duplicates:
-        display_file_groups(st.session_state.duplicates)
+        display_file_groups(st.session_state.duplicates, selected_provider)
 
-def display_file_groups(duplicates):
+def display_file_groups(duplicates, storage_provider):
     """
     Render duplicate file groups in the UI.
     :param duplicates: Dictionary of duplicate file groups
+    :param storage_provider: Storage provider instance
     """
     st.header("Duplicate Files")
     if not duplicates:
@@ -116,7 +159,7 @@ def display_file_groups(duplicates):
         st.subheader(f"Group {group_id}")
 
         for file in files:
-            file_info = get_file_info(file)
+            file_info = storage_provider.get_file_info(file)
             human_size = human_readable_size(file_info["size"])
 
             # Create 3-column layout
@@ -129,7 +172,7 @@ def display_file_groups(duplicates):
                     
             with col2:
                 # Inline preview
-                preview_file_inline(file)
+                storage_provider.preview_file(file)
                 
             with col3:
                 # File details with custom spacing
@@ -155,15 +198,18 @@ def display_file_groups(duplicates):
                     break
             
             if deletion_allowed:
-                delete_selected_files(selected_files)
-                st.success(f"Deleted {len(selected_files)} files.")
-                
-                # Remove deleted files from duplicates
-                for group_id, files in list(duplicates.items()):
-                    duplicates[group_id] = [f for f in files if f not in selected_files]
-                    if not duplicates[group_id] or len(duplicates[group_id]) == 1:  # Remove empty groups
-                        del duplicates[group_id]
-                
-                # Update session state and trigger rerun
-                st.session_state.duplicates = duplicates
-                st.rerun()
+                success = storage_provider.delete_files(selected_files)
+                if success:
+                    st.success(f"Deleted {len(selected_files)} files.")
+                    
+                    # Remove deleted files from duplicates
+                    for group_id, files in list(duplicates.items()):
+                        duplicates[group_id] = [f for f in files if f not in selected_files]
+                        if not duplicates[group_id] or len(duplicates[group_id]) == 1:  # Remove empty groups
+                            del duplicates[group_id]
+                    
+                    # Update session state and trigger rerun
+                    st.session_state.duplicates = duplicates
+                    st.rerun()
+                else:
+                    st.error("Failed to delete some files. Please check permissions.")
