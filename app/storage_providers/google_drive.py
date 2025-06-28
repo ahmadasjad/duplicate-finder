@@ -363,16 +363,71 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
                 folder_options.append(display_name)
                 folder_map[display_name] = folder['id']
 
+            # Add option for manual folder ID entry
+            folder_options.append("🔧 Enter Folder ID/Path Manually")
+
             if folder_options:
                 selected_folder = st.selectbox(
                     "Select Google Drive folder to scan:",
                     folder_options,
                     help="Choose a folder to scan for duplicate files"
                 )
-                return folder_map.get(selected_folder, "root")
+
+                # Handle manual folder ID entry
+                if selected_folder == "🔧 Enter Folder ID/Path Manually":
+                    manual_folder = st.text_input(
+                        "Enter Google Drive Folder ID or URL:",
+                        placeholder="e.g., 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms or https://drive.google.com/drive/folders/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms",
+                        help="Enter the folder ID or paste the full Google Drive folder URL"
+                    )
+
+                    if manual_folder:
+                        # Extract folder ID from URL if necessary
+                        if "drive.google.com" in manual_folder:
+                            import re
+                            folder_id_match = re.search(r'/folders/([a-zA-Z0-9-_]+)', manual_folder)
+                            if folder_id_match:
+                                folder_id = folder_id_match.group(1)
+                                st.success(f"Extracted folder ID: {folder_id}")
+                            else:
+                                st.error("Could not extract folder ID from URL")
+                                return None
+                        else:
+                            folder_id = manual_folder.strip()
+
+                        # Add recursive option
+                        include_subfolders = st.checkbox(
+                            "🔄 Include subfolders (recursive scan)",
+                            value=True,
+                            help="Scan all subfolders within the selected folder"
+                        )
+
+                        return {
+                            'folder_id': folder_id,
+                            'recursive': include_subfolders
+                        }
+                    else:
+                        return None
+                else:
+                    folder_id = folder_map.get(selected_folder, "root")
+
+                    # Add recursive option for selected folders
+                    include_subfolders = st.checkbox(
+                        "🔄 Include subfolders (recursive scan)",
+                        value=True,
+                        help="Scan all subfolders within the selected folder"
+                    )
+
+                    return {
+                        'folder_id': folder_id,
+                        'recursive': include_subfolders
+                    }
             else:
                 st.info("No accessible folders found in Google Drive")
-                return "root"
+                return {
+                    'folder_id': "root",
+                    'recursive': True
+                }
 
         except Exception as e:
             st.error(f"Error accessing Google Drive: {e}")
@@ -441,7 +496,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
                 q=query,
                 pageSize=100,
                 pageToken=page_token,
-                fields="nextPageToken,files(id,name,size,mimeType,md5Checksum,parents,webViewLink)"
+                fields="nextPageToken,files(id,name,size,mimeType,md5Checksum,parents,webViewLink,createdTime,modifiedTime)"
             ).execute()
 
             return results.get('files', []), results.get('nextPageToken')
@@ -450,7 +505,52 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             st.error(f"Error fetching files: {e}")
             return [], None
 
-    def scan_directory(self, directory: str, exclude_shortcuts: bool = True,
+    def _get_files_recursive(self, folder_id='root', visited_folders=None):
+        """Recursively get files from Google Drive folder and all subfolders"""
+        if visited_folders is None:
+            visited_folders = set()
+
+        # Prevent infinite loops
+        if folder_id in visited_folders:
+            return []
+
+        visited_folders.add(folder_id)
+        all_files = []
+
+        try:
+            # Get files in current folder
+            page_token = None
+            while True:
+                files, page_token = self._get_files(folder_id, page_token)
+                for file in files:
+                    # Add folder path information for debugging
+                    file['folder_id'] = folder_id
+                    if folder_id == 'root':
+                        file['folder_path'] = 'Root'
+                    else:
+                        try:
+                            folder_info = self.service.files().get(fileId=folder_id, fields="name").execute()
+                            file['folder_path'] = folder_info.get('name', 'Unknown')
+                        except:
+                            file['folder_path'] = folder_id[:8] + "..."
+
+                all_files.extend(files)
+                if not page_token:
+                    break
+
+            # Get subfolders and recursively scan them
+            subfolders = self._get_folders(folder_id)
+            for subfolder in subfolders:
+                subfolder_files = self._get_files_recursive(subfolder['id'], visited_folders.copy())
+                all_files.extend(subfolder_files)
+
+        except Exception as e:
+            import streamlit as st
+            st.warning(f"Error scanning folder {folder_id}: {e}")
+
+        return all_files
+
+    def scan_directory(self, directory, exclude_shortcuts: bool = True,
                       exclude_hidden: bool = True, exclude_system: bool = True,
                       min_size_kb: int = 0, max_size_kb: int = 0) -> Dict[str, List[str]]:
         """Scan Google Drive directory for duplicates"""
@@ -460,7 +560,18 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             st.error("Not authenticated with Google Drive")
             return {}
 
+        # Handle both old string format and new dict format
+        if isinstance(directory, dict):
+            folder_id = directory.get('folder_id', 'root')
+            recursive = directory.get('recursive', False)
+        else:
+            folder_id = directory
+            recursive = False
+
         st.info("🔍 Scanning Google Drive for duplicates...")
+
+        if recursive:
+            st.info("🔄 Recursive mode: Scanning all subfolders...")
 
         # Progress tracking
         progress_bar = st.progress(0)
@@ -470,19 +581,23 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             file_dict = {}
             processed_files = 0
             total_files = 0
+            skipped_no_hash = 0
+            skipped_filters = 0
 
-            # Get all files from the specified folder
-            page_token = None
+            # Get all files from the specified folder and subfolders
             all_files = []
 
-            status_text.text("Fetching file list from Google Drive...")
-
-            while True:
-                files, page_token = self._get_files(directory, page_token)
-                all_files.extend(files)
-
-                if not page_token:
-                    break
+            if recursive:
+                status_text.text("Discovering folders and files recursively...")
+                all_files = self._get_files_recursive(folder_id)
+            else:
+                status_text.text("Fetching file list from Google Drive...")
+                page_token = None
+                while True:
+                    files, page_token = self._get_files(folder_id, page_token)
+                    all_files.extend(files)
+                    if not page_token:
+                        break
 
             total_files = len(all_files)
             status_text.text(f"Found {total_files} files. Analyzing for duplicates...")
@@ -490,6 +605,20 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             if total_files == 0:
                 st.info("No files found in the selected folder")
                 return {}
+
+            # Debug information
+            st.info(f"🔍 Processing {total_files} files from Google Drive...")
+
+            # Show first few files for debugging
+            if total_files > 0:
+                st.write("**First few files found:**")
+                for i, file_info in enumerate(all_files[:5]):
+                    file_name = file_info.get('name', 'Unknown')
+                    file_size = int(file_info.get('size', 0))
+                    has_md5 = bool(file_info.get('md5Checksum'))
+                    md5_hash = file_info.get('md5Checksum', 'None')[:8] + "..." if file_info.get('md5Checksum') else 'None'
+                    folder_path = file_info.get('folder_path', 'Unknown')
+                    st.write(f"  {i+1}. {file_name} ({file_size} bytes, MD5: {md5_hash}, Has MD5: {has_md5}) - Path: {folder_path}")
 
             for i, file_info in enumerate(all_files):
                 try:
@@ -503,20 +632,32 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
                     file_size_bytes = int(file_info.get('size', 0))
                     file_size_kb = file_size_bytes / 1024
 
+                    # Debug: Log filter decisions
+                    skip_reason = None
+
                     # Skip hidden files
                     if exclude_hidden and file_name.startswith('.'):
+                        skipped_filters += 1
+                        skip_reason = "hidden file"
                         continue
 
                     # Skip by size
                     if file_size_kb < min_size_kb:
+                        skipped_filters += 1
+                        skip_reason = f"too small ({file_size_kb:.1f} KB < {min_size_kb} KB)"
                         continue
                     if max_size_kb > 0 and file_size_kb > max_size_kb:
+                        skipped_filters += 1
+                        skip_reason = f"too large ({file_size_kb:.1f} KB > {max_size_kb} KB)"
                         continue
 
-                    # Use MD5 checksum if available, otherwise skip
+                    # Use MD5 checksum if available, otherwise use name + size for basic duplicate detection
                     file_hash = file_info.get('md5Checksum')
                     if not file_hash:
-                        continue
+                        # Fallback: use filename and size as identifier for files without MD5
+                        # This is less accurate but better than skipping files entirely
+                        file_hash = f"fallback_{file_name}_{file_size_bytes}"
+                        skipped_no_hash += 1
 
                     # Create file identifier (use webViewLink for easy access)
                     file_id = file_info.get('webViewLink', file_info.get('id', ''))
@@ -531,13 +672,16 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
                         'size': file_size_bytes,
                         'id': file_info.get('id', ''),
                         'mimeType': file_info.get('mimeType', ''),
-                        'webViewLink': file_info.get('webViewLink', '')
+                        'webViewLink': file_info.get('webViewLink', ''),
+                        'has_md5': bool(file_info.get('md5Checksum')),
+                        'md5_hash': file_info.get('md5Checksum', 'fallback')
                     })
 
                     processed_files += 1
 
                 except Exception as e:
                     # Skip files that cause errors
+                    st.write(f"Error processing {file_info.get('name', 'unknown')}: {e}")
                     continue
 
             # Filter to only return groups with duplicates
@@ -547,11 +691,46 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             progress_bar.empty()
             status_text.empty()
 
+            # Show detailed results
+            st.info(f"📊 **Scan Summary:**")
+            st.write(f"- Total files found: {total_files}")
+            st.write(f"- Files processed: {processed_files}")
+            st.write(f"- Files skipped (no MD5): {skipped_no_hash}")
+            st.write(f"- Files skipped (filters): {skipped_filters}")
+            st.write(f"- Duplicate groups found: {len(duplicates)}")
+
+            # Debug: Show all processed files and their hashes
+            if processed_files > 0:
+                st.write("**All processed files with hashes:**")
+                for hash_key, files in file_dict.items():
+                    hash_display = hash_key[:16] + "..." if len(hash_key) > 16 else hash_key
+                    st.write(f"**Hash {hash_display}:** {len(files)} file(s)")
+                    for file in files:
+                        md5_display = file['md5_hash'][:8] + "..." if file['md5_hash'] != 'fallback' and len(file['md5_hash']) > 8 else file['md5_hash']
+                        st.write(f"  - {file['name']} ({file['size']} bytes, MD5: {md5_display})")
+
             if duplicates:
                 duplicate_count = sum(len(group) for group in duplicates.values())
                 st.success(f"✅ Scan complete! Found {len(duplicates)} groups containing {duplicate_count} duplicate files.")
+
+                # Show some details about the duplicates found
+                for i, (hash_key, files) in enumerate(list(duplicates.items())[:3]):  # Show first 3 groups
+                    st.write(f"**Group {i+1}:** {len(files)} files")
+                    for file in files:
+                        hash_type = "MD5" if file.get('has_md5') else "Name+Size"
+                        st.write(f"  - {file['name']} ({hash_type})")
+
+                if len(duplicates) > 3:
+                    st.write(f"... and {len(duplicates) - 3} more groups")
             else:
                 st.info("No duplicate files found in the selected folder.")
+
+                # Suggest checking subfolders if only one file found
+                if total_files == 1:
+                    st.warning("⚠️ **Only 1 file found!** Possible reasons:")
+                    st.write("- Duplicate files might be in subfolders (this scan only checks the selected folder)")
+                    st.write("- Files might have been filtered out")
+                    st.write("- Try scanning the 'Root Folder' to include all accessible files")
 
             return duplicates
 
@@ -612,12 +791,41 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         if isinstance(file_path, dict):
             # File path is already a file info dict
             file_info = file_path
+
+            # Format creation time
+            created_time = file_info.get('createdTime', '')
+            if created_time:
+                try:
+                    from datetime import datetime
+                    # Parse ISO format timestamp
+                    dt = datetime.fromisoformat(created_time.replace('Z', '+00:00'))
+                    created_formatted = dt.strftime('%Y-%m-%d %H:%M:%S')
+                except:
+                    created_formatted = created_time
+            else:
+                created_formatted = 'Unknown'
+
+            # Format modified time
+            modified_time = file_info.get('modifiedTime', '')
+            if modified_time:
+                try:
+                    from datetime import datetime
+                    # Parse ISO format timestamp
+                    dt = datetime.fromisoformat(modified_time.replace('Z', '+00:00'))
+                    modified_formatted = dt.strftime('%Y-%m-%d %H:%M:%S')
+                except:
+                    modified_formatted = modified_time
+            else:
+                modified_formatted = 'Unknown'
+
             return {
                 'name': file_info.get('name', 'Unknown'),
                 'size': file_info.get('size', 0),
                 'extension': self._get_file_extension(file_info.get('name', '')),
                 'path': file_info.get('webViewLink', file_info.get('id', '')),
                 'mime_type': file_info.get('mimeType', ''),
+                'created': created_formatted,
+                'modified': modified_formatted,
                 'source': 'Google Drive'
             }
         else:
@@ -628,6 +836,8 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
                 'extension': '',
                 'path': file_path,
                 'mime_type': '',
+                'created': 'Unknown',
+                'modified': 'Unknown',
                 'source': 'Google Drive'
             }
 
@@ -645,20 +855,155 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             file_info = file_path
             file_name = file_info.get('name', 'Unknown')
             web_link = file_info.get('webViewLink', '')
+            file_id = file_info.get('id', '')
             mime_type = file_info.get('mimeType', '')
 
             st.subheader(f"📄 {file_name}")
 
-            if web_link:
-                st.markdown(f"**🔗 [Open in Google Drive]({web_link})**")
+            # Enhanced preview options for Google Drive
+            col1, col2 = st.columns([2, 1])
 
-            st.write(f"**Type:** {mime_type}")
-            st.write(f"**Size:** {self._format_file_size(int(file_info.get('size', 0)))}")
+            with col1:
+                if web_link:
+                    st.markdown(f"**🔗 [Open in Google Drive]({web_link})**")
 
-            # For images, try to show preview (if publicly accessible)
+                # Additional viewing options for images
+                if file_id and mime_type.startswith('image/'):
+                    # Direct download link (works for images)
+                    download_url = f"https://drive.google.com/uc?id={file_id}&export=download"
+                    st.markdown(f"**📥 [Download Image]({download_url})**")
+
+                    # Google Drive preview link (opens in new tab)
+                    preview_url = f"https://drive.google.com/file/d/{file_id}/view"
+                    st.markdown(f"**👁️ [Preview in New Tab]({preview_url})**")
+
+            with col2:
+                st.write(f"**Type:** {mime_type}")
+                st.write(f"**Size:** {self._format_file_size(int(file_info.get('size', 0)))}")
+
+            # Enhanced image preview section
             if mime_type.startswith('image/'):
-                st.write("**Preview:**")
-                st.info("Image preview requires public sharing. Click the link above to view in Google Drive.")
+                st.write("**Preview Options:**")
+
+                # Try to show thumbnail if possible
+                if file_id:
+                    preview_success = False
+
+                    # Skip thumbnail and go directly to blob download for better reliability
+                    try:
+                        st.info("🔄 Loading image from Google Drive...")
+
+                        # Download the file content using Google Drive API
+                        file_content = self.service.files().get_media(fileId=file_id).execute()
+
+                        # Create thumbnail from the downloaded image
+                        try:
+                            from PIL import Image
+                            import io
+
+                            # Open the image from bytes
+                            image = Image.open(io.BytesIO(file_content))
+
+                            # Create a square thumbnail for consistent display
+                            # This will crop to fit if needed to avoid very long/wide images
+                            thumbnail_size = (250, 250)
+
+                            # Calculate dimensions to crop to square if needed
+                            width, height = image.size
+                            if width != height:
+                                # Crop to square using the center of the image
+                                min_dimension = min(width, height)
+                                left = (width - min_dimension) // 2
+                                top = (height - min_dimension) // 2
+                                right = left + min_dimension
+                                bottom = top + min_dimension
+                                image = image.crop((left, top, right, bottom))
+
+                            # Now create thumbnail of the square image
+                            image.thumbnail(thumbnail_size, Image.Resampling.LANCZOS)
+
+                            # Convert back to bytes for display
+                            thumbnail_buffer = io.BytesIO()
+                            # Preserve original format if possible, otherwise use PNG
+                            format_type = image.format if image.format else 'PNG'
+                            image.save(thumbnail_buffer, format=format_type)
+                            thumbnail_bytes = thumbnail_buffer.getvalue()
+
+                            # Display the thumbnail in a constrained container
+                            with st.container():
+                                st.image(thumbnail_bytes, caption=f"Preview of {file_name}", width=250)
+                            st.success("✅ Square thumbnail created from Google Drive image")
+                            preview_success = True
+
+                        except ImportError:
+                            # PIL not available, use width parameter to limit display size
+                            st.image(file_content, caption=f"Preview of {file_name}", width=400)
+                            st.success("✅ Image loaded from Google Drive (install Pillow for better thumbnails)")
+                            preview_success = True
+
+                        except Exception as pil_error:
+                            # If PIL processing fails, fall back to width-limited display
+                            st.image(file_content, caption=f"Preview of {file_name}", width=400)
+                            st.warning(f"⚠️ Could not create thumbnail: {pil_error}")
+                            preview_success = True
+
+                    except Exception as blob_error:
+                        # Fallback to thumbnail if blob download fails
+                        try:
+                            st.info("🔄 Trying thumbnail preview...")
+                            thumbnail_url = f"https://drive.google.com/thumbnail?id={file_id}&sz=w400"
+
+                            # Validate thumbnail response before displaying
+                            import requests
+                            response = requests.head(thumbnail_url)
+                            if response.status_code == 200:
+                                st.image(thumbnail_url, caption=f"Preview of {file_name}", width=400)
+                                st.caption("📌 Thumbnail preview")
+                                preview_success = True
+                            else:
+                                raise Exception(f"Thumbnail not accessible (status: {response.status_code})")
+
+                        except Exception as thumb_error:
+                            st.warning(f"⚠️ Could not load image: {blob_error}")
+                            st.warning(f"⚠️ Thumbnail also failed: {thumb_error}")
+                            preview_success = False
+
+                    if not preview_success:
+                        # Fallback options when both thumbnail and blob download fail
+                        st.info("🖼️ **Image Preview Options:**")
+                        st.write("• Click 'Open in Google Drive' to view the full image")
+                        st.write("• Click 'Preview in New Tab' for a larger view")
+                        st.write("• Click 'Download Image' to save locally")
+
+                        # Show instructions for enabling public preview
+                        with st.expander("🔧 Enable Direct Preview (Optional)"):
+                            st.write("**To enable direct image preview in this app:**")
+                            st.write("1. Open the file in Google Drive")
+                            st.write("2. Right-click → Share")
+                            st.write("3. Change to 'Anyone with the link can view'")
+                            st.write("4. Copy the share link")
+                            st.write("⚠️ Note: This makes the image publicly accessible")
+                else:
+                    st.info("📋 Click the links above to view this image in Google Drive")
+
+            # For non-image files
+            elif mime_type.startswith('video/'):
+                st.write("**Video File:**")
+                st.info("🎥 Click 'Open in Google Drive' to play this video")
+
+            elif mime_type.startswith('audio/'):
+                st.write("**Audio File:**")
+                st.info("🎵 Click 'Open in Google Drive' to play this audio")
+
+            elif mime_type == 'application/pdf':
+                st.write("**PDF Document:**")
+                if file_id:
+                    pdf_embed_url = f"https://drive.google.com/file/d/{file_id}/preview"
+                    st.markdown(f"**📖 [View PDF]({pdf_embed_url})**")
+                st.info("📄 Click the link above to view this PDF")
+
+            else:
+                st.info("📁 Click 'Open in Google Drive' to view this file")
 
         else:
             st.info("File preview not available for this Google Drive file")
