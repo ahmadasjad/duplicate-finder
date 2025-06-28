@@ -343,7 +343,12 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
                     st.rerun()
             return None
 
-        st.success("✅ Connected to Google Drive")
+        # Show connection status with user identity
+        user_info = self._get_user_info()
+        if user_info:
+            st.success(f"✅ Connected to Google Drive as **{user_info['name']}** ({user_info['email']})")
+        else:
+            st.success("✅ Connected to Google Drive")
 
         # Get available folders
         try:
@@ -372,6 +377,33 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         except Exception as e:
             st.error(f"Error accessing Google Drive: {e}")
             return None
+
+    def _get_user_info(self):
+        """Get user information from Google Drive API"""
+        try:
+            # Get user info from the Drive API
+            about = self.service.about().get(fields="user").execute()
+            user = about.get('user', {})
+
+            return {
+                'name': user.get('displayName', 'Unknown User'),
+                'email': user.get('emailAddress', 'Unknown Email'),
+                'photo': user.get('photoLink', '')
+            }
+        except Exception:
+            # Fallback: try to get info from OAuth2 userinfo API
+            try:
+                from googleapiclient.discovery import build
+                userinfo_service = build('oauth2', 'v2', credentials=self.credentials)
+                user_info = userinfo_service.userinfo().get().execute()
+
+                return {
+                    'name': user_info.get('name', 'Unknown User'),
+                    'email': user_info.get('email', 'Unknown Email'),
+                    'photo': user_info.get('picture', '')
+                }
+            except Exception:
+                return None
 
     def _get_folders(self, parent_id='root', limit=50):
         """Get list of folders from Google Drive"""
