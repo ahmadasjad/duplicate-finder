@@ -740,7 +740,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             st.error(f"Error scanning Google Drive: {e}")
             return {}
 
-    def delete_files(self, file_paths: List[str]) -> bool:
+    def delete_files(self, files: List[str]) -> bool:
         """Delete files from Google Drive"""
         import streamlit as st
 
@@ -750,9 +750,9 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
 
         try:
             success_count = 0
-            total_count = len(file_paths)
+            total_count = len(files)
 
-            for file_path in file_paths:
+            for file_path in files:
                 try:
                     # Extract file ID from path (assumes file_path contains file metadata)
                     if isinstance(file_path, dict):
@@ -786,11 +786,10 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             st.error(f"Error during file deletion: {e}")
             return False
 
-    def get_file_info(self, file_path: str) -> dict:
+    def get_file_info(self, file: str) -> dict:
         """Get Google Drive file info"""
-        if isinstance(file_path, dict):
-            # File path is already a file info dict
-            file_info = file_path
+        if isinstance(file, dict):
+            file_info = file
 
             # Format creation time
             created_time = file_info.get('createdTime', '')
@@ -834,7 +833,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
                 'name': 'Unknown',
                 'size': 0,
                 'extension': '',
-                'path': file_path,
+                'path': file,
                 'mime_type': '',
                 'created': 'Unknown',
                 'modified': 'Unknown',
@@ -847,51 +846,25 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             return filename.rsplit('.', 1)[-1].lower()
         return ''
 
-    def preview_file(self, file_path: str):
-        """Preview Google Drive file"""
+    def preview_file(self, file: str):
+        """Preview Google Drive file - only handles preview content, no layout"""
         import streamlit as st
 
-        if isinstance(file_path, dict):
-            file_info = file_path
+        if isinstance(file, dict):
+            file_info = file
             file_name = file_info.get('name', 'Unknown')
-            web_link = file_info.get('webViewLink', '')
             file_id = file_info.get('id', '')
             mime_type = file_info.get('mimeType', '')
 
-            st.subheader(f"📄 {file_name}")
-
-            # Enhanced preview options for Google Drive
-            col1, col2 = st.columns([2, 1])
-
-            with col1:
-                if web_link:
-                    st.markdown(f"**🔗 [Open in Google Drive]({web_link})**")
-
-                # Additional viewing options for images
-                if file_id and mime_type.startswith('image/'):
-                    # Direct download link (works for images)
-                    download_url = f"https://drive.google.com/uc?id={file_id}&export=download"
-                    st.markdown(f"**📥 [Download Image]({download_url})**")
-
-                    # Google Drive preview link (opens in new tab)
-                    preview_url = f"https://drive.google.com/file/d/{file_id}/view"
-                    st.markdown(f"**👁️ [Preview in New Tab]({preview_url})**")
-
-            with col2:
-                st.write(f"**Type:** {mime_type}")
-                st.write(f"**Size:** {self._format_file_size(int(file_info.get('size', 0)))}")
-
             # Enhanced image preview section
             if mime_type.startswith('image/'):
-                st.write("**Preview Options:**")
-
                 # Try to show thumbnail if possible
                 if file_id:
                     preview_success = False
 
                     # Skip thumbnail and go directly to blob download for better reliability
                     try:
-                        st.info("🔄 Loading image from Google Drive...")
+                        # st.info("🔄 Loading image from Google Drive...")
 
                         # Download the file content using Google Drive API
                         file_content = self.service.files().get_media(fileId=file_id).execute()
@@ -930,20 +903,20 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
                             thumbnail_bytes = thumbnail_buffer.getvalue()
 
                             # Display the thumbnail in a constrained container
-                            with st.container():
-                                st.image(thumbnail_bytes, caption=f"Preview of {file_name}", width=250)
-                            st.success("✅ Square thumbnail created from Google Drive image")
+                            # st.image(thumbnail_bytes, caption=f"Preview of {file_name}", width=250)
+                            st.image(thumbnail_bytes, width=250)
+                            # st.success("✅ Square thumbnail created from Google Drive image")
                             preview_success = True
 
                         except ImportError:
                             # PIL not available, use width parameter to limit display size
-                            st.image(file_content, caption=f"Preview of {file_name}", width=400)
+                            st.image(file_content, caption=f"Preview of {file_name}", width=250)
                             st.success("✅ Image loaded from Google Drive (install Pillow for better thumbnails)")
                             preview_success = True
 
                         except Exception as pil_error:
                             # If PIL processing fails, fall back to width-limited display
-                            st.image(file_content, caption=f"Preview of {file_name}", width=400)
+                            st.image(file_content, caption=f"Preview of {file_name}", width=250)
                             st.warning(f"⚠️ Could not create thumbnail: {pil_error}")
                             preview_success = True
 
@@ -951,13 +924,13 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
                         # Fallback to thumbnail if blob download fails
                         try:
                             st.info("🔄 Trying thumbnail preview...")
-                            thumbnail_url = f"https://drive.google.com/thumbnail?id={file_id}&sz=w400"
+                            thumbnail_url = f"https://drive.google.com/thumbnail?id={file_id}&sz=w250"
 
                             # Validate thumbnail response before displaying
                             import requests
                             response = requests.head(thumbnail_url)
                             if response.status_code == 200:
-                                st.image(thumbnail_url, caption=f"Preview of {file_name}", width=400)
+                                st.image(thumbnail_url, caption=f"Preview of {file_name}", width=250)
                                 st.caption("📌 Thumbnail preview")
                                 preview_success = True
                             else:
@@ -975,35 +948,24 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
                         st.write("• Click 'Preview in New Tab' for a larger view")
                         st.write("• Click 'Download Image' to save locally")
 
-                        # Show instructions for enabling public preview
-                        with st.expander("🔧 Enable Direct Preview (Optional)"):
-                            st.write("**To enable direct image preview in this app:**")
-                            st.write("1. Open the file in Google Drive")
-                            st.write("2. Right-click → Share")
-                            st.write("3. Change to 'Anyone with the link can view'")
-                            st.write("4. Copy the share link")
-                            st.write("⚠️ Note: This makes the image publicly accessible")
                 else:
                     st.info("📋 Click the links above to view this image in Google Drive")
 
             # For non-image files
-            elif mime_type.startswith('video/'):
-                st.write("**Video File:**")
-                st.info("🎥 Click 'Open in Google Drive' to play this video")
+            # elif mime_type.startswith('video/'):
+            #     st.info("🎥 Click 'Open in Google Drive' to play this video")
 
-            elif mime_type.startswith('audio/'):
-                st.write("**Audio File:**")
-                st.info("🎵 Click 'Open in Google Drive' to play this audio")
+            # elif mime_type.startswith('audio/'):
+            #     st.info("🎵 Click 'Open in Google Drive' to play this audio")
 
             elif mime_type == 'application/pdf':
-                st.write("**PDF Document:**")
+                # st.info("📄 Click 'Open in Google Drive' to view this PDF")
                 if file_id:
                     pdf_embed_url = f"https://drive.google.com/file/d/{file_id}/preview"
                     st.markdown(f"**📖 [View PDF]({pdf_embed_url})**")
-                st.info("📄 Click the link above to view this PDF")
 
             else:
-                st.info("📁 Click 'Open in Google Drive' to view this file")
+                st.info("📁 'Open in Google Drive'")
 
         else:
             st.info("File preview not available for this Google Drive file")
@@ -1015,4 +977,61 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
                 return f"{size_bytes:.1f} {unit}"
             size_bytes /= 1024
         return f"{size_bytes:.1f} TB"
+
+    def get_file_extra_info(self, file_path: str) -> dict:
+        """Get Google Drive specific extra information for UI display"""
+        if isinstance(file_path, dict):
+            file_info = file_path
+            web_link = file_info.get('webViewLink', '')
+            file_id = file_info.get('id', '')
+            mime_type = file_info.get('mimeType', '')
+
+            extra_info = {
+                'web_link': web_link,
+                'file_id': file_id,
+                'mime_type': mime_type,
+                'links': []
+            }
+
+            # Add Google Drive link
+            if web_link:
+                extra_info['links'].append({
+                    'text': '🔗 Open in Google Drive',
+                    'url': web_link
+                })
+
+            # Additional viewing options for images
+            if file_id and mime_type.startswith('image/'):
+                # Direct download link
+                download_url = f"https://drive.google.com/uc?id={file_id}&export=download"
+                extra_info['links'].append({
+                    'text': '📥 Download Image',
+                    'url': download_url
+                })
+
+                # Preview link
+                preview_url = f"https://drive.google.com/file/d/{file_id}/view"
+                extra_info['links'].append({
+                    'text': '👁️ Preview in New Tab',
+                    'url': preview_url
+                })
+
+            return extra_info
+
+        return {'links': []}
+
+    def get_file_path(self, file: str) -> str:
+        """Get formatted file path for Google Drive files"""
+        if isinstance(file, dict):
+            # For Google Drive, use the full path if available
+            if 'full_path' in file:
+                return file['full_path']
+            else:
+                # Fallback to constructing path from available info
+                folder_path = file.get('folder_path', 'Root')
+                file_name = file.get('name', 'Unknown')
+                return f"/{folder_path}/{file_name}" if folder_path != 'Root' else f"/Root/{file_name}"
+        else:
+            # Fallback for string paths
+            return str(file)
 

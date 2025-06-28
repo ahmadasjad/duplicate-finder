@@ -190,8 +190,8 @@ def display_file_groups(duplicates, storage_provider):
             file_info = storage_provider.get_file_info(file)
             human_size = human_readable_size(file_info["size"])
 
-            # Create 3-column layout
-            col1, col2, col3 = st.columns([0.5, 1, 2])
+            # Create 3-column layout: checkbox, preview, details
+            col1, col2, col3 = st.columns([2, 4, 6])
 
             with col1:
                 # Checkbox for deletion
@@ -203,14 +203,32 @@ def display_file_groups(duplicates, storage_provider):
                 storage_provider.preview_file(file)
 
             with col3:
-                # File details with custom spacing
+                # File details
+                full_path = storage_provider.get_file_path(file)
                 st.markdown(f"""
-                **File:** {file_info['name']}
-                **Path:** {file}
-                **Size:** {human_size}  <span style="display: inline-block; width: 1cm;"></span>**Ext:** {file_info['extension']}
-                **Created:** {file_info['created']}
-                **Modified:** {file_info['modified']}
+                <div style="margin: 0; line-height: 1;">
+                <p style="margin-bottom: 2px;"><b>File:</b> {file_info['name']}</p>
+                <p style=""><b>Path:</b> {full_path}</p>
+                </div>
                 """, unsafe_allow_html=True)
+                size_col, ext_col = st.columns(2)
+                with size_col:
+                    st.write(f"**Size:** {human_size}")
+                with ext_col:
+                    st.write(f"**Ext:** {file_info['extension']}")
+                st.markdown(f"""
+                <div style="margin: 0; line-height: 1;">
+                <p style="margin-bottom: 2px;"><b>Created at:</b> {file_info['created']}</p>
+                <p><b>Last modified at:</b> {file_info['modified']}</p>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # Add provider-specific extra info and action links
+                if hasattr(storage_provider, 'get_file_extra_info'):
+                    extra_info = storage_provider.get_file_extra_info(file)
+                    for link in extra_info.get('links', []):
+                        st.markdown(f"**[{link['text']}]({link['url']})**")
+
 
     # Perform deletion
     if selected_files:

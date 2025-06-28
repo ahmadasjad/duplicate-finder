@@ -192,8 +192,9 @@ class LocalFileSystemProvider(BaseStorageProvider):
 
         return {k: v for k, v in file_dict.items() if len(v) > 1}
 
-    def delete_files(self, file_paths: List[str]) -> bool:
+    def delete_files(self, files: List[str]) -> bool:
         """Delete selected files"""
+        file_paths = files
         try:
             for file_path in file_paths:
                 if os.path.exists(file_path):
@@ -202,12 +203,18 @@ class LocalFileSystemProvider(BaseStorageProvider):
         except Exception as e:
             return False
 
-    def get_file_info(self, file_path: str) -> dict:
+    def get_file_info(self, file: str) -> dict:
         """Get file information"""
+        file_path = file
         from app.utils import get_file_info
         return get_file_info(file_path)
 
-    def preview_file(self, file_path: str):
+    def preview_file(self, file: str):
         """Preview file content"""
+        file_path = file
         from app.preview import preview_file_inline
         preview_file_inline(file_path)
+
+    def get_file_path(self, file: str) -> str:
+        """Get formatted file path for display"""
+        return os.path.abspath(file)
