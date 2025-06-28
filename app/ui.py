@@ -16,30 +16,35 @@ def run_app():
     if 'selected_provider' not in st.session_state:
         st.session_state.selected_provider = None
 
-    # Storage provider selection
-    st.subheader("Select Storage Provider")
-    providers = get_storage_providers()
-    provider_info = get_provider_info()
-    
-    if not providers:
-        st.error("No storage providers are currently enabled. Please check the configuration.")
-        return
+    # Sidebar for storage provider selection
+    with st.sidebar:
+        st.header("Storage Provider")
+        providers = get_storage_providers()
+        provider_info = get_provider_info()
         
-    provider_names = list(providers.keys())
-    
-    # Show provider descriptions
-    for name in provider_names:
-        info = provider_info.get(name, {})
+        if not providers:
+            st.error("No storage providers are currently enabled. Please check the configuration.")
+            return
+            
+        provider_names = list(providers.keys())
+        
+        selected_provider_name = st.selectbox(
+            "Choose where to scan for duplicates:",
+            provider_names,
+            index=0,
+            key="provider_selector"
+        )
+        
+        # Show provider description
+        info = provider_info.get(selected_provider_name, {})
         description = info.get("description", "No description available")
-        st.markdown(f"**{name}:** {description}")
-    
-    st.markdown("---")
-    
-    selected_provider_name = st.selectbox(
-        "Choose where to scan for duplicates:",
-        provider_names,
-        index=0
-    )
+        st.info(description)
+        
+        # Show provider status/requirements
+        if info.get("requires_auth", False):
+            st.caption("⚠️ Requires authentication")
+        else:
+            st.caption("✅ No authentication required")
     
     # Get the selected provider instance
     selected_provider = providers[selected_provider_name]
@@ -54,25 +59,26 @@ def run_app():
     directory_widget = selected_provider.get_directory_input_widget()
     if directory_widget is None:
         return  # Provider not ready (e.g., needs authentication)
-    
+
     directory = directory_widget
     if not directory:
         st.warning("Please enter a directory to scan.")
         return
 
     # Filter options
-    st.subheader("Scan Filters")
-    col1, col2 = st.columns(2)
-    with col1:
-        exclude_shortcuts = st.checkbox("Exclude shortcuts and symlinks", value=True)
-        exclude_hidden = st.checkbox("Exclude hidden files", value=True)
-    with col2:
-        exclude_system = st.checkbox("Exclude system files", value=True)
-        min_size = st.number_input("Minimum file size (KB)", min_value=0, value=0)
-        max_size = st.number_input("Maximum file size (KB)", min_value=0, value=0)
+    st.subheader("Scan Options")
+    with st.expander("Advanced Filters", expanded=False):
+        col1, col2 = st.columns(2)
+        with col1:
+            exclude_shortcuts = st.checkbox("Exclude shortcuts and symlinks", value=True)
+            exclude_hidden = st.checkbox("Exclude hidden files", value=True)
+        with col2:
+            exclude_system = st.checkbox("Exclude system files", value=True)
+            min_size = st.number_input("Minimum file size (KB)", min_value=0, value=0)
+            max_size = st.number_input("Maximum file size (KB)", min_value=0, value=0)
 
     # Scan for duplicates
-    if st.button("Scan for Duplicates"):
+    if st.button("Scan for Duplicates", type="primary"):
         with st.spinner("Scanning for duplicates..."):
             st.session_state.duplicates = selected_provider.scan_directory(
                 directory,
@@ -86,6 +92,26 @@ def run_app():
             st.success(f"Found {len(st.session_state.duplicates)} groups of duplicates.")
         else:
             st.info("No duplicate files found.")
+
+    # Add scan statistics to sidebar
+    if st.session_state.duplicates:
+        with st.sidebar:
+            st.markdown("---")
+            st.subheader("Scan Results")
+            
+            # Calculate statistics
+            total_groups = len(st.session_state.duplicates)
+            total_duplicates = sum(len(group) for group in st.session_state.duplicates.values())
+            total_files = total_duplicates
+            duplicate_files = total_files - total_groups  # Subtract one original per group
+            
+            st.metric("Duplicate Groups", total_groups)
+            st.metric("Total Files", total_files)
+            st.metric("Duplicate Files", duplicate_files)
+            
+            if total_files > 0:
+                savings_percentage = (duplicate_files / total_files) * 100
+                st.metric("Potential Savings", f"{savings_percentage:.1f}%")
 
     # Display duplicates if they exist
     if st.session_state.duplicates:
