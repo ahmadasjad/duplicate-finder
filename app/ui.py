@@ -53,7 +53,9 @@ def run_app():
     # Show provider-specific authentication if needed
     if not selected_provider.authenticate():
         st.warning(f"Authentication required for {selected_provider_name}")
-        return
+        # For Google Drive, still show the directory widget to handle auth UI
+        if selected_provider.name != "Google Drive":
+            return
 
     # Get directory input widget from provider
     directory_widget = selected_provider.get_directory_input_widget()

@@ -5,9 +5,11 @@ PyMuPDF
 opencv-python
 pdfplumber
 
-# Cloud storage providers (optional - uncomment when implementing)
-# google-api-python-client
-# google-auth-httplib2
-# google-auth-oauthlib
+# Google Drive API dependencies
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
+
+# Other cloud storage providers (optional - uncomment when implementing)
 # dropbox
 # msal
