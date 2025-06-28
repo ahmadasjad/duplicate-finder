@@ -21,40 +21,40 @@ def run_app():
         st.header("Storage Provider")
         providers = get_storage_providers()
         provider_info = get_provider_info()
-        
+
         if not providers:
             st.error("No storage providers are currently enabled. Please check the configuration.")
             return
-            
+
         provider_names = list(providers.keys())
-        
+
         selected_provider_name = st.selectbox(
             "Choose where to scan for duplicates:",
             provider_names,
             index=0,
             key="provider_selector"
         )
-        
+
         # Show provider description
         info = provider_info.get(selected_provider_name, {})
         description = info.get("description", "No description available")
         st.info(description)
-        
+
         # Show provider status/requirements
         if info.get("requires_auth", False):
             st.caption("⚠️ Requires authentication")
         else:
             st.caption("✅ No authentication required")
-    
+
     # Get the selected provider instance
     selected_provider = providers[selected_provider_name]
     st.session_state.selected_provider = selected_provider
-    
+
     # Show provider-specific authentication if needed
     if not selected_provider.authenticate():
         st.warning(f"Authentication required for {selected_provider_name}")
         return
-    
+
     # Get directory input widget from provider
     directory_widget = selected_provider.get_directory_input_widget()
     if directory_widget is None:
@@ -98,17 +98,17 @@ def run_app():
         with st.sidebar:
             st.markdown("---")
             st.subheader("Scan Results")
-            
+
             # Calculate statistics
             total_groups = len(st.session_state.duplicates)
             total_duplicates = sum(len(group) for group in st.session_state.duplicates.values())
             total_files = total_duplicates
             duplicate_files = total_files - total_groups  # Subtract one original per group
-            
+
             st.metric("Duplicate Groups", total_groups)
             st.metric("Total Files", total_files)
             st.metric("Duplicate Files", duplicate_files)
-            
+
             if total_files > 0:
                 savings_percentage = (duplicate_files / total_files) * 100
                 st.metric("Potential Savings", f"{savings_percentage:.1f}%")
@@ -133,11 +133,11 @@ def display_file_groups(duplicates, storage_provider):
         st.session_state.page = 0
     if 'per_page' not in st.session_state:
         st.session_state.per_page = 5
-        
+
     # Pagination controls
     groups = list(duplicates.values())
     total_groups = len(groups)
-    
+
     # Sidebar controls
     with st.sidebar:
         # Per page selection
@@ -147,15 +147,15 @@ def display_file_groups(duplicates, storage_provider):
             options=per_page_options,
             index=per_page_options.index(st.session_state.per_page)
         )
-        
+
         # Reset page if per_page changes
         if new_per_page != st.session_state.per_page:
             st.session_state.per_page = new_per_page
             st.session_state.page = 0
             st.rerun()
-        
+
     total_pages = (total_groups + st.session_state.per_page - 1) // st.session_state.per_page
-    
+
     col1, col2 = st.columns([1, 3])
     with col1:
         st.write(f"Page {st.session_state.page + 1} of {total_pages}")
@@ -165,7 +165,7 @@ def display_file_groups(duplicates, storage_provider):
             if st.button("Previous"):
                 st.session_state.page -= 1
                 st.rerun()
-        
+
         # Only show Next button if not on last page
         if st.session_state.page < total_pages - 1:
             if st.button("Next"):
@@ -177,11 +177,11 @@ def display_file_groups(duplicates, storage_provider):
     # Display groups for current page
     start_idx = st.session_state.page * st.session_state.per_page
     end_idx = min(start_idx + st.session_state.per_page, total_groups)
-    
+
     for group_idx in range(start_idx, end_idx):
         files = groups[group_idx]
         group_id = group_idx + 1
-        
+
         st.subheader(f"Group {group_id}")
 
         for file in files:
@@ -190,23 +190,23 @@ def display_file_groups(duplicates, storage_provider):
 
             # Create 3-column layout
             col1, col2, col3 = st.columns([0.5, 1, 2])
-            
+
             with col1:
                 # Checkbox for deletion
                 if st.checkbox(f"Delete", key=f"delete-{file}"):
                     selected_files.append(file)
-                    
+
             with col2:
                 # Inline preview
                 storage_provider.preview_file(file)
-                
+
             with col3:
                 # File details with custom spacing
                 st.markdown(f"""
-                **File:** {file_info['name']}  
-                **Path:** {file}  
-                **Size:** {human_size}  <span style="display: inline-block; width: 1cm;"></span>**Ext:** {file_info['extension']}  
-                **Created:** {file_info['created']}  
+                **File:** {file_info['name']}
+                **Path:** {file}
+                **Size:** {human_size}  <span style="display: inline-block; width: 1cm;"></span>**Ext:** {file_info['extension']}
+                **Created:** {file_info['created']}
                 **Modified:** {file_info['modified']}
                 """, unsafe_allow_html=True)
 
@@ -222,18 +222,18 @@ def display_file_groups(duplicates, storage_provider):
                     st.error(f"Cannot delete all files in Group {group_id}. At least one file must remain.")
                     deletion_allowed = False
                     break
-            
+
             if deletion_allowed:
                 success = storage_provider.delete_files(selected_files)
                 if success:
                     st.success(f"Deleted {len(selected_files)} files.")
-                    
+
                     # Remove deleted files from duplicates
                     for group_id, files in list(duplicates.items()):
                         duplicates[group_id] = [f for f in files if f not in selected_files]
                         if not duplicates[group_id] or len(duplicates[group_id]) == 1:  # Remove empty groups
                             del duplicates[group_id]
-                    
+
                     # Update session state and trigger rerun
                     st.session_state.duplicates = duplicates
                     st.rerun()
