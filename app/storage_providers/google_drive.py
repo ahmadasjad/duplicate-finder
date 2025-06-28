@@ -5,7 +5,154 @@ from typing import Dict, List, Optional
 from .base import BaseStorageProvider
 
 
-class GoogleDriveProvider(BaseStorageProvider):
+class GoogleAuthenticator:
+
+    def _perform_oauth_flow(self):
+        """Perform OAuth flow directly in the application"""
+        import streamlit as st
+
+        st.markdown("### 🔐 Google Drive Authentication")
+
+        # Generate auth URL
+        auth_url, error = self._generate_auth_url()
+        if error:
+            st.error(f"Failed to generate authentication URL: {error}")
+            return False
+
+        if auth_url:
+            # Step 1: Show authorization URL
+            st.markdown("**Step 1:** Click the link below to authorize access:")
+            st.markdown(f"🔗 **[Authorize Google Drive Access]({auth_url})**")
+
+            # Important note about OAuth consent screen
+            st.info("""
+            💡 **Important**: If you get an "access_denied" error, you need to add your email as a test user:
+
+            1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+            2. Select your project → APIs & Services → OAuth consent screen
+            3. Add your email to "Test users" section
+            """)
+
+            # Step 2: Get authorization code
+            st.markdown("**Step 2:** Copy the authorization code and paste it below:")
+
+            auth_code = st.text_input(
+                "Authorization Code:",
+                placeholder="Paste the authorization code here...",
+                help="After clicking the link above, Google will show you an authorization code. Copy and paste it here.",
+                key="gdrive_auth_code"
+            )
+
+            if auth_code and st.button("✅ Complete Authentication", type="primary"):
+                with st.spinner("Completing authentication..."):
+                    success, error = self._exchange_code_for_token(auth_code.strip())
+
+                    if success:
+                        st.success("🎉 Authentication successful!")
+                        st.balloons()
+                        st.session_state.gdrive_auth_flow = False
+                        return True
+                    else:
+                        st.error(f"❌ Authentication failed: {error}")
+                        st.info("Please check the authorization code and try again.")
+                        return False
+
+        return False
+
+    def _generate_auth_url(self):
+        """Generate authentication URL for user to visit"""
+        try:
+            from google_auth_oauthlib.flow import InstalledAppFlow
+
+            SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
+            credentials_file = 'credentials.json'
+
+            if not os.path.exists(credentials_file):
+                return None, "credentials.json file not found"
+
+            # Create flow
+            flow = InstalledAppFlow.from_client_secrets_file(credentials_file, SCOPES)
+            flow.redirect_uri = 'urn:ietf:wg:oauth:2.0:oob'  # For manual copy-paste flow
+
+            auth_url, _ = flow.authorization_url(prompt='consent')
+            return auth_url, None
+
+        except Exception as e:
+            return None, str(e)
+
+    def _exchange_code_for_token(self, auth_code):
+        """Exchange authorization code for access token"""
+        try:
+            import streamlit as st
+            from google_auth_oauthlib.flow import InstalledAppFlow
+
+            SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
+            credentials_file = 'credentials.json'
+
+            # Create flow
+            flow = InstalledAppFlow.from_client_secrets_file(credentials_file, SCOPES)
+            flow.redirect_uri = 'urn:ietf:wg:oauth:2.0:oob'
+
+            # Exchange code for token
+            flow.fetch_token(code=auth_code)
+            creds = flow.credentials
+
+            # Save token
+            with open('token.json', 'w') as token:
+                token.write(creds.to_json())
+
+            # Update instance
+            self.credentials = creds
+            st.session_state.gdrive_credentials = creds
+
+            if self._build_service():
+                self.authenticated = True
+                return True, None
+            else:
+                return False, "Failed to build Google Drive service"
+
+        except Exception as e:
+            error_message = str(e)
+
+            # Handle common OAuth errors with helpful messages
+            if "access_denied" in error_message:
+                return False, """
+🚫 **Access Denied - OAuth Consent Screen Issue**
+
+This error usually means your app is in testing mode and you need to add your email as a test user:
+
+**Fix Steps:**
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Select your project 'duplicate-file-finder-464317'
+3. Go to APIs & Services → OAuth consent screen
+4. Scroll to "Test users" section
+5. Click "+ ADD USERS"
+6. Add your email address
+7. Click Save and try again
+
+**Alternative:** You can also publish your OAuth consent screen to make it available to all users.
+"""
+            elif "invalid_grant" in error_message:
+                return False, """
+⏰ **Invalid Grant - Code Expired**
+
+The authorization code has expired or was already used.
+
+**Fix:** Click the authorization link again to get a new code.
+"""
+            elif "invalid_request" in error_message:
+                return False, """
+📝 **Invalid Request - Code Format Issue**
+
+The authorization code format is incorrect.
+
+**Fix:** Make sure you copied the complete authorization code from Google.
+"""
+            else:
+                return False, f"Authentication error: {error_message}"
+
+
+class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
     """Google Drive storage provider with OAuth2 authentication"""
 
     def __init__(self):
@@ -492,146 +639,3 @@ class GoogleDriveProvider(BaseStorageProvider):
             size_bytes /= 1024
         return f"{size_bytes:.1f} TB"
 
-    def _perform_oauth_flow(self):
-        """Perform OAuth flow directly in the application"""
-        import streamlit as st
-
-        st.markdown("### 🔐 Google Drive Authentication")
-
-        # Generate auth URL
-        auth_url, error = self._generate_auth_url()
-        if error:
-            st.error(f"Failed to generate authentication URL: {error}")
-            return False
-
-        if auth_url:
-            # Step 1: Show authorization URL
-            st.markdown("**Step 1:** Click the link below to authorize access:")
-            st.markdown(f"🔗 **[Authorize Google Drive Access]({auth_url})**")
-
-            # Important note about OAuth consent screen
-            st.info("""
-            💡 **Important**: If you get an "access_denied" error, you need to add your email as a test user:
-
-            1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-            2. Select your project → APIs & Services → OAuth consent screen
-            3. Add your email to "Test users" section
-            """)
-
-            # Step 2: Get authorization code
-            st.markdown("**Step 2:** Copy the authorization code and paste it below:")
-
-            auth_code = st.text_input(
-                "Authorization Code:",
-                placeholder="Paste the authorization code here...",
-                help="After clicking the link above, Google will show you an authorization code. Copy and paste it here.",
-                key="gdrive_auth_code"
-            )
-
-            if auth_code and st.button("✅ Complete Authentication", type="primary"):
-                with st.spinner("Completing authentication..."):
-                    success, error = self._exchange_code_for_token(auth_code.strip())
-
-                    if success:
-                        st.success("🎉 Authentication successful!")
-                        st.balloons()
-                        st.session_state.gdrive_auth_flow = False
-                        return True
-                    else:
-                        st.error(f"❌ Authentication failed: {error}")
-                        st.info("Please check the authorization code and try again.")
-                        return False
-
-        return False
-
-    def _generate_auth_url(self):
-        """Generate authentication URL for user to visit"""
-        try:
-            from google_auth_oauthlib.flow import InstalledAppFlow
-
-            SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
-            credentials_file = 'credentials.json'
-
-            if not os.path.exists(credentials_file):
-                return None, "credentials.json file not found"
-
-            # Create flow
-            flow = InstalledAppFlow.from_client_secrets_file(credentials_file, SCOPES)
-            flow.redirect_uri = 'urn:ietf:wg:oauth:2.0:oob'  # For manual copy-paste flow
-
-            auth_url, _ = flow.authorization_url(prompt='consent')
-            return auth_url, None
-
-        except Exception as e:
-            return None, str(e)
-
-    def _exchange_code_for_token(self, auth_code):
-        """Exchange authorization code for access token"""
-        try:
-            import streamlit as st
-            from google_auth_oauthlib.flow import InstalledAppFlow
-
-            SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
-            credentials_file = 'credentials.json'
-
-            # Create flow
-            flow = InstalledAppFlow.from_client_secrets_file(credentials_file, SCOPES)
-            flow.redirect_uri = 'urn:ietf:wg:oauth:2.0:oob'
-
-            # Exchange code for token
-            flow.fetch_token(code=auth_code)
-            creds = flow.credentials
-
-            # Save token
-            with open('token.json', 'w') as token:
-                token.write(creds.to_json())
-
-            # Update instance
-            self.credentials = creds
-            st.session_state.gdrive_credentials = creds
-
-            if self._build_service():
-                self.authenticated = True
-                return True, None
-            else:
-                return False, "Failed to build Google Drive service"
-
-        except Exception as e:
-            error_message = str(e)
-
-            # Handle common OAuth errors with helpful messages
-            if "access_denied" in error_message:
-                return False, """
-🚫 **Access Denied - OAuth Consent Screen Issue**
-
-This error usually means your app is in testing mode and you need to add your email as a test user:
-
-**Fix Steps:**
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Select your project 'duplicate-file-finder-464317'
-3. Go to APIs & Services → OAuth consent screen
-4. Scroll to "Test users" section
-5. Click "+ ADD USERS"
-6. Add your email address
-7. Click Save and try again
-
-**Alternative:** You can also publish your OAuth consent screen to make it available to all users.
-"""
-            elif "invalid_grant" in error_message:
-                return False, """
-⏰ **Invalid Grant - Code Expired**
-
-The authorization code has expired or was already used.
-
-**Fix:** Click the authorization link again to get a new code.
-"""
-            elif "invalid_request" in error_message:
-                return False, """
-📝 **Invalid Request - Code Format Issue**
-
-The authorization code format is incorrect.
-
-**Fix:** Make sure you copied the complete authorization code from Google.
-"""
-            else:
-                return False, f"Authentication error: {error_message}"
