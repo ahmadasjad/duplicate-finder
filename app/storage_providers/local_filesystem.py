@@ -67,6 +67,8 @@ class LocalFileSystemProvider(BaseStorageProvider):
 
         # col1, col2 = st.columns([3, 1])
         # with col1:
+        if default_index >= len(default_dirs):
+            default_index = 0
         directory = st.selectbox("Enter directory path:", options=default_dirs, accept_new_options=True, index=default_index)
         # with col2:
         #     if st.button("Browse", help="Quick select common directories"):

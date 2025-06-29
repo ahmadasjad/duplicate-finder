@@ -19,7 +19,7 @@ class BaseStorageProvider(ABC):
         pass
 
     @abstractmethod
-    def scan_directory(self, directory: str, exclude_shortcuts: bool = True,
+    def scan_directory(self, directory: str, *, exclude_shortcuts: bool = True,
                       exclude_hidden: bool = True, exclude_system: bool = True,
                       min_size_kb: int = 0, max_size_kb: int = 0) -> Dict[str, List[str]]:
         """Scan directory and return duplicate file groups"""
@@ -45,12 +45,12 @@ class BaseStorageProvider(ABC):
         """Preview file content"""
         pass
 
-    def get_scan_success_msg(self, duplicate_groups: int, duplicate_count: int) -> str:
+    def get_scan_success_msg(self, duplicate_groups: int, duplicate_files: int) -> str:  # pylint: disable=unused-argument
         """Return custom success message after scan completion
 
         Args:
             duplicate_groups: Number of duplicate groups found
-            duplicate_count: Total number of duplicate files found
+            duplicate_files: Total number of duplicate files found
 
         Returns:
             A formatted success message string

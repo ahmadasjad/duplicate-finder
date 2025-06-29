@@ -55,10 +55,9 @@ class GoogleAuthenticator:
                         st.balloons()
                         st.session_state.gdrive_auth_flow = False
                         return True
-                    else:
-                        st.error(f"❌ Authentication failed: {error}")
-                        st.info("Please check the authorization code and try again.")
-                        return False
+                    st.error(f"❌ Authentication failed: {error}")
+                    st.info("Please check the authorization code and try again.")
+                    return False
 
         return False
 
@@ -111,8 +110,7 @@ class GoogleAuthenticator:
             if self._build_service():
                 self.authenticated = True
                 return True, None
-            else:
-                return False, "Failed to build Google Drive service"
+            return False, "Failed to build Google Drive service"
 
         except Exception as e:
             error_message = str(e)
@@ -135,7 +133,7 @@ This error usually means your app is in testing mode and you need to add your em
 
 **Alternative:** You can also publish your OAuth consent screen to make it available to all users.
 """
-            elif "invalid_grant" in error_message:
+            if "invalid_grant" in error_message:
                 return False, """
 ⏰ **Invalid Grant - Code Expired**
 
@@ -143,7 +141,7 @@ The authorization code has expired or was already used.
 
 **Fix:** Click the authorization link again to get a new code.
 """
-            elif "invalid_request" in error_message:
+            if "invalid_request" in error_message:
                 return False, """
 📝 **Invalid Request - Code Format Issue**
 
@@ -151,8 +149,8 @@ The authorization code format is incorrect.
 
 **Fix:** Make sure you copied the complete authorization code from Google.
 """
-            else:
-                return False, f"Authentication error: {error_message}"
+
+            return False, f"Authentication error: {error_message}"
 
 
 class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
@@ -409,8 +407,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
                             'folder_id': folder_id,
                             'recursive': include_subfolders
                         }
-                    else:
-                        return None
+                    return None
                 else:
                     folder_id = folder_map.get(selected_folder, "root")
 
@@ -638,7 +635,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
                     has_md5 = bool(file_info.get('md5Checksum'))
                     md5_hash = file_info.get('md5Checksum', 'None')[:8] + "..." if file_info.get('md5Checksum') else 'None'
                     folder_path = file_info.get('folder_path', 'Unknown')
-                    logger.debug(f"  {i+1}. {file_name} ({file_size} bytes, MD5: {md5_hash}, Has MD5: {has_md5}) - Path: {folder_path}")
+                    logger.debug(f"  %s. %s (%s bytes, MD5: %s, Has MD5: %s) - Path: %s", i+1,file_name, file_size, md5_hash, has_md5, folder_path)
 
             for i, file_info in enumerate(all_files):
                 try:
@@ -1063,4 +1060,3 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         else:
             # Fallback for string paths
             return str(file)
-
