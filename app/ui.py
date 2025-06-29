@@ -36,12 +36,24 @@ def run_app():
 
         provider_names = list(providers.keys())
 
+        # Track the previous provider to detect changes
+        if 'previous_provider' not in st.session_state:
+            st.session_state.previous_provider = None
+
         selected_provider_name = st.selectbox(
             "Choose where to scan for duplicates:",
             provider_names,
             index=0,
             key="provider_selector"
         )
+
+        # Reset duplicates if provider changes
+        if st.session_state.previous_provider is not None and st.session_state.previous_provider != selected_provider_name:
+            st.session_state.duplicates = None
+            st.session_state.page = 0
+
+        # Update the previous provider
+        st.session_state.previous_provider = selected_provider_name
 
         # Initialize pagination settings
         if 'per_page' not in st.session_state:
