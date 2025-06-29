@@ -35,6 +35,21 @@ def run_app():
             key="provider_selector"
         )
 
+        # Initialize pagination settings
+        if 'per_page' not in st.session_state:
+            st.session_state.per_page = 5
+
+        # Per page selection
+        st.subheader("Display Settings")
+        per_page_options = [1, 5, 10, 20]
+        st.selectbox(
+            "Items per page",
+            options=per_page_options,
+            index=per_page_options.index(st.session_state.per_page),
+            key="items_per_page",
+            on_change=lambda: setattr(st.session_state, 'per_page', st.session_state.items_per_page)
+        )
+
         # Show provider description
         info = provider_info.get(selected_provider_name, {})
         # description = info.get("description", "No description available")
@@ -145,17 +160,10 @@ def display_file_groups(duplicates, storage_provider):
 
     # Sidebar controls
     with st.sidebar:
-        # Per page selection
-        per_page_options = [1, 5, 10, 20]
-        new_per_page = st.selectbox(
-            "Items per page",
-            options=per_page_options,
-            index=per_page_options.index(st.session_state.per_page)
-        )
-
+        # Per page selection - Removed from here since it's now in the sidebar at the top
         # Reset page if per_page changes
-        if new_per_page != st.session_state.per_page:
-            st.session_state.per_page = new_per_page
+        if 'per_page' in st.session_state and st.session_state.get('items_per_page') != st.session_state.per_page:
+            st.session_state.per_page = st.session_state.items_per_page
             st.session_state.page = 0
             st.rerun()
 
