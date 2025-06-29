@@ -3,6 +3,9 @@ import hashlib
 import json
 from typing import Dict, List, Optional
 from .base import BaseStorageProvider
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class GoogleAuthenticator:
@@ -555,6 +558,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
                       min_size_kb: int = 0, max_size_kb: int = 0) -> Dict[str, List[str]]:
         """Scan Google Drive directory for duplicates"""
         import streamlit as st
+        import time
 
         if not self.authenticated or not self.service:
             st.error("Not authenticated with Google Drive")
@@ -568,10 +572,26 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             folder_id = directory
             recursive = False
 
-        st.info("🔍 Scanning Google Drive for duplicates...")
+        # Create a placeholder for status messages that will be reused
+        status_placeholder = st.empty()
+
+        # Function to display a status message for at least 5 seconds
+        # last_message_time = [time.time()]  # Using list to make it mutable in nested function
+
+        # def show_status(message):
+        #     # current_time = time.time()
+        #     # # Ensure previous message showed for at least 5 seconds
+        #     # if current_time - last_message_time[0] < 5:
+        #     #     time.sleep(5 - (current_time - last_message_time[0]))
+        #     # Update the message and time
+        #     status_placeholder.info(message)
+        #     # last_message_time[0] = time.time()
+
+        # Initial status message
+        status_placeholder.info("🔍 Scanning Google Drive for duplicates...")
 
         if recursive:
-            st.info("🔄 Recursive mode: Scanning all subfolders...")
+            status_placeholder.info("🔄 Recursive mode: Scanning all subfolders...")
 
         # Progress tracking
         progress_bar = st.progress(0)
@@ -606,19 +626,19 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
                 st.info("No files found in the selected folder")
                 return {}
 
-            # Debug information
-            st.info(f"🔍 Processing {total_files} files from Google Drive...")
+            # Show processing status
+            status_placeholder.info(f"🔍 Processing {total_files} files from Google Drive...")
 
             # Show first few files for debugging
             if total_files > 0:
-                st.write("**First few files found:**")
+                logger.info("**First few files found:**")
                 for i, file_info in enumerate(all_files[:5]):
                     file_name = file_info.get('name', 'Unknown')
                     file_size = int(file_info.get('size', 0))
                     has_md5 = bool(file_info.get('md5Checksum'))
                     md5_hash = file_info.get('md5Checksum', 'None')[:8] + "..." if file_info.get('md5Checksum') else 'None'
                     folder_path = file_info.get('folder_path', 'Unknown')
-                    st.write(f"  {i+1}. {file_name} ({file_size} bytes, MD5: {md5_hash}, Has MD5: {has_md5}) - Path: {folder_path}")
+                    logger.debug(f"  {i+1}. {file_name} ({file_size} bytes, MD5: {md5_hash}, Has MD5: {has_md5}) - Path: {folder_path}")
 
             for i, file_info in enumerate(all_files):
                 try:
@@ -690,44 +710,46 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             # Clean up progress indicators
             progress_bar.empty()
             status_text.empty()
+            status_placeholder.empty()  # Clean up our status messages placeholder
 
             # Show detailed results
-            st.info(f"📊 **Scan Summary:**")
-            st.write(f"- Total files found: {total_files}")
-            st.write(f"- Files processed: {processed_files}")
-            st.write(f"- Files skipped (no MD5): {skipped_no_hash}")
-            st.write(f"- Files skipped (filters): {skipped_filters}")
-            st.write(f"- Duplicate groups found: {len(duplicates)}")
+            logger.info(f"📊 **Scan Summary:**")
+            logger.info(f"- Total files found: {total_files}")
+            logger.info(f"- Files processed: {processed_files}")
+            logger.info(f"- Files skipped (no MD5): {skipped_no_hash}")
+            logger.info(f"- Files skipped (filters): {skipped_filters}")
+            logger.info(f"- Duplicate groups found: {len(duplicates)}")
 
             # Debug: Show all processed files and their hashes
             if processed_files > 0:
-                st.write("**All processed files with hashes:**")
+                logger.info("**All processed files with hashes:**")
                 for hash_key, files in file_dict.items():
                     hash_display = hash_key[:16] + "..." if len(hash_key) > 16 else hash_key
-                    st.write(f"**Hash {hash_display}:** {len(files)} file(s)")
+                    logger.debug(f"**Hash {hash_display}:** {len(files)} file(s)")
                     for file in files:
                         md5_display = file['md5_hash'][:8] + "..." if file['md5_hash'] != 'fallback' and len(file['md5_hash']) > 8 else file['md5_hash']
-                        st.write(f"  - {file['name']} ({file['size']} bytes, MD5: {md5_display})")
+                        logger.debug(f"  - {file['name']} ({file['size']} bytes, MD5: {md5_display})")
 
             if duplicates:
                 duplicate_count = sum(len(group) for group in duplicates.values())
-                st.success(f"✅ Scan complete! Found {len(duplicates)} groups containing {duplicate_count} duplicate files.")
+                # status_placeholder.success(f"✅ Scan complete! Found {len(duplicates)} groups containing {duplicate_count} duplicate files.")
+                status_placeholder.empty()  # Clear the status message after showing success
 
                 # Show some details about the duplicates found
                 for i, (hash_key, files) in enumerate(list(duplicates.items())[:3]):  # Show first 3 groups
-                    st.write(f"**Group {i+1}:** {len(files)} files")
+                    logger.info(f"**Group {i+1}:** {len(files)} files")
                     for file in files:
                         hash_type = "MD5" if file.get('has_md5') else "Name+Size"
-                        st.write(f"  - {file['name']} ({hash_type})")
+                        logger.debug(f"  - {file['name']} ({hash_type})")
 
                 if len(duplicates) > 3:
-                    st.write(f"... and {len(duplicates) - 3} more groups")
+                    logger.info(f"... and {len(duplicates) - 3} more groups")
             else:
                 st.info("No duplicate files found in the selected folder.")
 
                 # Suggest checking subfolders if only one file found
                 if total_files == 1:
-                    st.warning("⚠️ **Only 1 file found!** Possible reasons:")
+                    status_placeholder.warning("⚠️ **Only 1 file found!** Possible reasons:")
                     st.write("- Duplicate files might be in subfolders (this scan only checks the selected folder)")
                     st.write("- Files might have been filtered out")
                     st.write("- Try scanning the 'Root Folder' to include all accessible files")
@@ -737,11 +759,13 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         except Exception as e:
             progress_bar.empty()
             status_text.empty()
+            status_placeholder.empty()  # Clean up our status messages placeholder
             st.error(f"Error scanning Google Drive: {e}")
             return {}
 
     def delete_files(self, files: List[str]) -> bool:
         """Delete files from Google Drive"""
+        # Import streamlit at the top level to avoid errors
         import streamlit as st
 
         if not self.authenticated or not self.service:
@@ -785,6 +809,11 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         except Exception as e:
             st.error(f"Error during file deletion: {e}")
             return False
+
+    def get_scan_success_msg(self, duplicate_groups: int, duplicate_count: int) -> str:
+        """Return custom success message for Google Drive scan completion"""
+        return f"✅ Scan complete! Found {duplicate_groups} groups containing {duplicate_count} duplicate files."
+    # f"✅ Scan complete! Found {len(duplicates)} groups containing {duplicate_count} duplicate files."
 
     def get_file_info(self, file: str) -> dict:
         """Get Google Drive file info"""

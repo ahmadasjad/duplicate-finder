@@ -2,6 +2,9 @@ import os
 import hashlib
 from typing import Dict, List
 from .base import BaseStorageProvider
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class LocalFileSystemProvider(BaseStorageProvider):
@@ -38,7 +41,7 @@ class LocalFileSystemProvider(BaseStorageProvider):
                 "/host_home",
                 "/host_test_data"
             ]
-            default_path = "/app/test_data"
+            default_index = 3
         else:
             # Show local system directory suggestions
             st.info("💻 **Local Mode**")
@@ -60,17 +63,17 @@ class LocalFileSystemProvider(BaseStorageProvider):
             ]
             # Filter out directories that don't exist
             default_dirs = [d for d in default_dirs if os.path.exists(d)]
-            default_path = home_dir
+            default_index = 0
 
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            directory = st.text_input("Enter directory path:", value=default_path)
-        with col2:
-            if st.button("Browse", help="Quick select common directories"):
-                selected = st.selectbox("Quick select:", default_dirs, key="dir_select")
-                if selected:
-                    st.session_state.directory_input = selected
-                    st.rerun()
+        # col1, col2 = st.columns([3, 1])
+        # with col1:
+        directory = st.selectbox("Enter directory path:", options=default_dirs, accept_new_options=True, index=default_index)
+        # with col2:
+        #     if st.button("Browse", help="Quick select common directories"):
+        #         selected = st.selectbox("Quick select:", default_dirs, key="dir_select")
+        #         if selected:
+        #             st.session_state.directory_input = selected
+        #             st.rerun()
 
         return directory
 
@@ -206,6 +209,8 @@ class LocalFileSystemProvider(BaseStorageProvider):
     def get_file_info(self, file: str) -> dict:
         """Get file information"""
         file_path = file
+        logger.info(f"Getting file info for: {file_path}")
+        logger.info(file)
         from app.utils import get_file_info
         return get_file_info(file_path)
 

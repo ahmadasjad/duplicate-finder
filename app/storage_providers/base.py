@@ -44,3 +44,15 @@ class BaseStorageProvider(ABC):
     def preview_file(self, file: str):
         """Preview file content"""
         pass
+
+    def get_scan_success_msg(self, duplicate_groups: int, duplicate_count: int) -> str:
+        """Return custom success message after scan completion
+
+        Args:
+            duplicate_groups: Number of duplicate groups found
+            duplicate_count: Total number of duplicate files found
+
+        Returns:
+            A formatted success message string
+        """
+        return f"Found {duplicate_groups} groups of duplicates."

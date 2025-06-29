@@ -4,6 +4,14 @@ from app.utils import get_file_info, human_readable_size
 from app.preview import preview_file_inline
 from app.storage_providers import get_storage_providers, get_provider_info
 
+# Set page configuration to wide mode
+st.set_page_config(
+    page_title="Duplicate File Finder",
+    page_icon="📂",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 def run_app():
     """
     Main function to run the Streamlit app.
@@ -109,7 +117,17 @@ def run_app():
                 max_size_kb=max_size
             )
         if st.session_state.duplicates:
-            st.success(f"Found {len(st.session_state.duplicates)} groups of duplicates.")
+            # Get total duplicate count
+            total_duplicates = sum(len(group) for group in st.session_state.duplicates.values())
+
+            # Use custom success message if provider implements it
+            # if hasattr(selected_provider, 'get_scan_success_msg'):
+            st.success(selected_provider.get_scan_success_msg(
+                len(st.session_state.duplicates),
+                total_duplicates
+            ))
+            # else:
+            #     st.success(f"Found {len(st.session_state.duplicates)} groups of duplicates.")
         else:
             st.info("No duplicate files found.")
 
@@ -143,6 +161,7 @@ def display_file_groups(duplicates, storage_provider):
     :param duplicates: Dictionary of duplicate file groups
     :param storage_provider: Storage provider instance
     """
+    st.divider()
     st.header("Duplicate Files")
     if not duplicates:
         st.write("No duplicates to display.")
@@ -199,11 +218,23 @@ def display_file_groups(duplicates, storage_provider):
         total_files_in_group = len(files)
         group_file_info = storage_provider.get_file_info(files[0])
         group_size = human_readable_size(group_file_info["size"])
+        wasted_space = human_readable_size(group_file_info['size'] * (total_files_in_group - 1))
 
-        # Use Streamlit's expander for a clear group container
-        with st.expander(f"🗂️ Duplicate Group {group_id} - {total_files_in_group} files ({group_size} each)", expanded=True):
-            # Group statistics at the top
-            st.info(f"💾 **Total wasted space:** {human_readable_size(group_file_info['size'] * (total_files_in_group - 1))}")
+        # Use Streamlit's expander for a clear group container with info styling
+        st.markdown(
+            """
+            <style>
+            .stExpander summary {
+                background-color: rgb(187, 222, 251); /* Change this to your desired color */
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+        expander_header = f"🗂️ Duplicate Group {group_id} - {total_files_in_group} files ({group_size} each) | 💾 Total wasted space: {wasted_space}"
+        with st.expander(expander_header, expanded=True,):
+            # Display as info message
+            # st.info(expander_header)
 
             # Files in this group with numbered display
             for file_idx, file in enumerate(files, 1):
@@ -216,18 +247,7 @@ def display_file_groups(duplicates, storage_provider):
                     col1, col2, col3 = st.columns([2, 4, 6])
 
                     with col1:
-                        st.markdown(f"""
-                        <div style="
-                            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
-                            padding: 10px;
-                            border-radius: 8px;
-                            text-align: center;
-                            margin-bottom: 15px;
-                            border: 2px solid #2196f3;
-                        ">
-                            <strong style="color: #1976d2; font-size: 14px;">📄 File #{file_idx}</strong>
-                        </div>
-                        """, unsafe_allow_html=True)
+                        st.badge(f"📄 File #{file_idx}")
                         # Checkbox for deletion
                         if st.checkbox(f"Delete this file", key=f"delete-{file}"):
                             selected_files.append(file)
@@ -259,9 +279,12 @@ def display_file_groups(duplicates, storage_provider):
                         if hasattr(storage_provider, 'get_file_extra_info'):
                             extra_info = storage_provider.get_file_extra_info(file)
                             if extra_info.get('links'):
-                                st.markdown("**🔗 Actions:**")
-                                for link in extra_info.get('links', []):
-                                    st.markdown(f"  • **[{link['text']}]({link['url']})**")
+                                st.markdown("**Actions:**")
+                                action_cols = st.columns(len(extra_info.get('links', [])))
+                                for col, link in zip(action_cols, extra_info.get('links', [])):
+                                # for link in extra_info.get('links', []):
+                                    with col:
+                                        st.markdown(f"**[{link['text']}]({link['url']})**")
 
                     # Add divider only if not the last file in the group
                     if file_idx < len(files):
