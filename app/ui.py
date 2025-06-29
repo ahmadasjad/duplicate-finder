@@ -184,50 +184,80 @@ def display_file_groups(duplicates, storage_provider):
         files = groups[group_idx]
         group_id = group_idx + 1
 
-        st.subheader(f"Group {group_id}")
+        # Calculate group statistics
+        total_files_in_group = len(files)
+        group_file_info = storage_provider.get_file_info(files[0])
+        group_size = human_readable_size(group_file_info["size"])
 
-        for file in files:
-            file_info = storage_provider.get_file_info(file)
-            human_size = human_readable_size(file_info["size"])
+        # Use Streamlit's expander for a clear group container
+        with st.expander(f"🗂️ Duplicate Group {group_id} - {total_files_in_group} files ({group_size} each)", expanded=True):
+            # Group statistics at the top
+            st.info(f"💾 **Total wasted space:** {human_readable_size(group_file_info['size'] * (total_files_in_group - 1))}")
 
-            # Create 3-column layout: checkbox, preview, details
-            col1, col2, col3 = st.columns([2, 4, 6])
+            # Files in this group with numbered display
+            for file_idx, file in enumerate(files, 1):
+                file_info = storage_provider.get_file_info(file)
+                human_size = human_readable_size(file_info["size"])
 
-            with col1:
-                # Checkbox for deletion
-                if st.checkbox(f"Delete", key=f"delete-{file}"):
-                    selected_files.append(file)
+                # Create a container for each file with bottom border only
+                with st.container():
+                    # Create 3-column layout: checkbox, preview, details
+                    col1, col2, col3 = st.columns([2, 4, 6])
 
-            with col2:
-                # Inline preview
-                storage_provider.preview_file(file)
+                    with col1:
+                        st.markdown(f"""
+                        <div style="
+                            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+                            padding: 10px;
+                            border-radius: 8px;
+                            text-align: center;
+                            margin-bottom: 15px;
+                            border: 2px solid #2196f3;
+                        ">
+                            <strong style="color: #1976d2; font-size: 14px;">📄 File #{file_idx}</strong>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        # Checkbox for deletion
+                        if st.checkbox(f"Delete this file", key=f"delete-{file}"):
+                            selected_files.append(file)
 
-            with col3:
-                # File details
-                full_path = storage_provider.get_file_path(file)
-                st.markdown(f"""
-                <div style="margin: 0; line-height: 1;">
-                <p style="margin-bottom: 2px;"><b>File:</b> {file_info['name']}</p>
-                <p style=""><b>Path:</b> {full_path}</p>
-                </div>
-                """, unsafe_allow_html=True)
-                size_col, ext_col = st.columns(2)
-                with size_col:
-                    st.write(f"**Size:** {human_size}")
-                with ext_col:
-                    st.write(f"**Ext:** {file_info['extension']}")
-                st.markdown(f"""
-                <div style="margin: 0; line-height: 1;">
-                <p style="margin-bottom: 2px;"><b>Created at:</b> {file_info['created']}</p>
-                <p><b>Last modified at:</b> {file_info['modified']}</p>
-                </div>
-                """, unsafe_allow_html=True)
+                    with col2:
+                        # Inline preview
+                        storage_provider.preview_file(file)
 
-                # Add provider-specific extra info and action links
-                if hasattr(storage_provider, 'get_file_extra_info'):
-                    extra_info = storage_provider.get_file_extra_info(file)
-                    for link in extra_info.get('links', []):
-                        st.markdown(f"**[{link['text']}]({link['url']})**")
+                    with col3:
+                        # File details
+                        full_path = storage_provider.get_file_path(file)
+                        st.markdown(f"""
+                        <div style="margin: 0; line-height: 1.6;">
+                            <p style="margin-bottom: 10px; font-weight: bold; color: #1f2937; font-size: 16px;">📄 {file_info['name']}</p>
+                            <p style="margin-bottom: 10px; color: #6b7280; font-size: 12px; background-color: #f3f4f6; padding: 6px 10px; border-radius: 6px;">📁 {full_path}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                        # File metadata in a compact layout
+                        meta_col1, meta_col2 = st.columns(2)
+                        with meta_col1:
+                            st.markdown(f"**📏 Size:** {human_size}")
+                            st.markdown(f"**🏷️ Type:** {file_info['extension']}")
+                        with meta_col2:
+                            st.markdown(f"**📅 Created:** {file_info['created']}")
+                            st.markdown(f"**✏️ Modified:** {file_info['modified']}")
+
+                        # Add provider-specific extra info and action links
+                        if hasattr(storage_provider, 'get_file_extra_info'):
+                            extra_info = storage_provider.get_file_extra_info(file)
+                            if extra_info.get('links'):
+                                st.markdown("**🔗 Actions:**")
+                                for link in extra_info.get('links', []):
+                                    st.markdown(f"  • **[{link['text']}]({link['url']})**")
+
+                    # Add divider only if not the last file in the group
+                    if file_idx < len(files):
+                        st.divider()
+
+        # Add spacing between groups
+        st.markdown("<br>", unsafe_allow_html=True)
 
 
     # Perform deletion
