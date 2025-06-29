@@ -7,7 +7,7 @@ services:
     volumes:
       - .:/app
       # Mount host directories for scanning duplicates (using accessible paths)
-      - ~/.:/host_home:ro    # Read-only access to user's home directory
+    #   - ~/.:/host_home:ro    # Read-only access to user's home directory
       - ./test_data:/host_test_data:ro  # Read-only access to test data directory
       # Add more mount points as needed
     environment:
