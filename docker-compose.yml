@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   app:
     build: .
@@ -8,5 +6,10 @@ services:
       - "8501:8501"
     volumes:
       - .:/app
+      # Mount host directories for scanning duplicates (using accessible paths)
+    #   - ~/.:/host_home:ro    # Read-only access to user's home directory
+      - ./test_data:/host_test_data:ro  # Read-only access to test data directory
+      # Add more mount points as needed
     environment:
       - STREAMLIT_SERVER_PORT=8501
+      - PYTHONPATH=/app
