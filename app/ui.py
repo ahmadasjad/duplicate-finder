@@ -37,14 +37,17 @@ def run_app():
 
         # Show provider description
         info = provider_info.get(selected_provider_name, {})
-        description = info.get("description", "No description available")
-        st.info(description)
+        # description = info.get("description", "No description available")
+        # st.info(description)
 
-        # Show provider status/requirements
-        if info.get("requires_auth", False):
-            st.caption("⚠️ Requires authentication")
-        else:
-            st.caption("✅ No authentication required")
+        # Get the selected provider instance to check authentication status
+        selected_provider = providers[selected_provider_name]
+
+        # Show authentication status only if not authenticated
+        if info.get("requires_auth", False) and not selected_provider.authenticate():
+            st.caption("⚠️ Authentication required")
+        # else:
+        #     st.caption("✅ No authentication required")
 
     # Get the selected provider instance
     selected_provider = providers[selected_provider_name]
