@@ -2,7 +2,7 @@
 
 from typing import Dict, List
 import streamlit as st
-from .base import BaseStorageProvider
+from .base import BaseStorageProvider, ScanFilterOptions
 
 
 class DropboxProvider(BaseStorageProvider):
@@ -26,7 +26,7 @@ class DropboxProvider(BaseStorageProvider):
             return None
         return st.selectbox("Select Dropbox folder:", ["Root", "Apps", "Shared"])
 
-    def scan_directory(self, directory: str, filters) -> Dict[str, List[str]]:
+    def scan_directory(self, directory: str, filters: ScanFilterOptions) -> Dict[str, List[str]]:
         """Scan Dropbox directory (placeholder)"""
         st.warning("Dropbox scanning not yet implemented")
         return {}

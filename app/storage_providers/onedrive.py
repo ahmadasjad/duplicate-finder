@@ -1,7 +1,7 @@
 """OneDrive storage provider implementation."""
 
 from typing import Dict, List
-from .base import BaseStorageProvider
+from .base import BaseStorageProvider, ScanFilterOptions
 import streamlit as st
 
 
@@ -26,7 +26,7 @@ class OneDriveProvider(BaseStorageProvider):
             return None
         return st.selectbox("Select OneDrive folder:", ["Root", "Documents", "Pictures"])
 
-    def scan_directory(self, directory: str, filters) -> Dict[str, List[str]]:
+    def scan_directory(self, directory: str, filters: ScanFilterOptions) -> Dict[str, List[str]]:
         """Scan OneDrive directory (placeholder)"""
         st.warning("OneDrive scanning not yet implemented")
         return {}

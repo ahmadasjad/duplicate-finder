@@ -7,7 +7,7 @@ from typing import Dict, List
 from app.file_operations import is_file_shortcut, is_file_hidden, is_file_for_system
 from app.utils import get_file_info
 from app.preview import preview_file_inline
-from .base import BaseStorageProvider
+from .base import BaseStorageProvider, ScanFilterOptions
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +121,7 @@ class LocalFileSystemProvider(BaseStorageProvider):
         except (OSError, IOError):
             return None
 
-    def scan_directory(self, directory: str, filters) -> Dict[str, List[str]]:
+    def scan_directory(self, directory: str, filters: ScanFilterOptions) -> Dict[str, List[str]]:
         """Scan directory and identify duplicates with optional filters."""
         if not directory or not os.path.exists(directory):
             return {}

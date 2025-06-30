@@ -584,7 +584,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             if len(duplicates) > 3:
                 logger.info("... and %d more groups", len(duplicates) - 3)
 
-    def scan_directory(self, directory: str, filters) -> Dict[str, List[str]]:
+    def scan_directory(self, directory: str, filters: ScanFilterOptions) -> Dict[str, List[str]]:
         """Scan Google Drive directory for duplicates"""
 
         if not self.authenticated or not self.service:
