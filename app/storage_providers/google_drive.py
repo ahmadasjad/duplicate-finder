@@ -5,7 +5,7 @@ import requests
 import streamlit as st
 from typing import Dict, List, Optional
 from .base import BaseStorageProvider
-from ..utils import human_readable_size
+from ..utils import human_readable_size, get_file_extension, format_iso_timestamp
 
 logger = logging.getLogger(__name__)
 
@@ -792,25 +792,13 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         """Return custom success message for Google Drive scan completion"""
         return f"✅ Scan complete! Found {duplicate_groups} groups containing {duplicate_count} duplicate files."
 
-    def _format_timestamp(self, timestamp: str, default: str = 'Unknown') -> str:
-        """Format ISO timestamp to readable format"""
-        if not timestamp:
-            return default
-
-        try:
-            from datetime import datetime
-            dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-            return dt.strftime('%Y-%m-%d %H:%M:%S')
-        except:
-            return timestamp
-
     def _extract_time_info(self, file_info: dict) -> tuple[str, str]:
         """Extract and format creation and modification times from file info"""
         created_time = file_info.get('createdTime', '')
         modified_time = file_info.get('modifiedTime', '')
 
-        created_formatted = self._format_timestamp(created_time) if created_time else 'Unknown'
-        modified_formatted = self._format_timestamp(modified_time) if modified_time else 'Unknown'
+        created_formatted = format_iso_timestamp(created_time) if created_time else 'Unknown'
+        modified_formatted = format_iso_timestamp(modified_time) if modified_time else 'Unknown'
 
         return created_formatted, modified_formatted
 
@@ -826,7 +814,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             'name': file_info.get('name', 'Unknown'),
             'size': size_bytes,
             'size_formatted': human_readable_size(size_bytes),
-            'extension': self._get_file_extension(file_info.get('name', '')),
+            'extension': get_file_extension(file_info.get('name', '')),
             'path': file_info.get('webViewLink', file_info.get('id', '')),
             'mime_type': file_info.get('mimeType', ''),
             'created': created_formatted,
@@ -851,12 +839,6 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
                 'modified': 'Unknown',
                 'source': 'Google Drive'
             }
-
-    def _get_file_extension(self, filename: str) -> str:
-        """Extract file extension from filename"""
-        if '.' in filename:
-            return filename.rsplit('.', 1)[-1].lower()
-        return ''
 
     def preview_file(self, file: str):
         """Preview Google Drive file - only handles preview content, no layout"""

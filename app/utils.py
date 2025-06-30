@@ -28,3 +28,20 @@ def get_file_info(file_path):
         "created": format_timestamp(stat.st_ctime),
         "modified": format_timestamp(stat.st_mtime)
     }
+
+def get_file_extension(filename: str) -> str:
+    """Extract file extension from filename"""
+    if '.' in filename:
+        return filename.rsplit('.', 1)[-1].lower()
+    return ''
+
+def format_iso_timestamp(timestamp: str, default: str = 'Unknown') -> str:
+    """Format ISO timestamp to readable format"""
+    if not timestamp:
+        return default
+    try:
+        from datetime import datetime
+        dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+        return dt.strftime('%Y-%m-%d %H:%M:%S')
+    except Exception:
+        return timestamp
