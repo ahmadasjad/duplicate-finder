@@ -250,11 +250,8 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
 
         return False  # Not authenticated
 
-    def get_directory_input_widget(self):
-        """Return widget for Google Drive folder selection"""
-        import streamlit as st
-
-        # Check if required packages are installed
+    def _check_dependencies(self):
+        """Check for required Google Drive dependencies and credentials file."""
         try:
             from google.auth.transport.requests import Request
             from google.oauth2.credentials import Credentials
@@ -268,11 +265,8 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib
             ```
             """)
-            return None
-
-        # Check for credentials file
-        credentials_file = 'credentials.json'
-        if not os.path.exists(credentials_file):
+            return False
+        if not os.path.exists('credentials.json'):
             st.error("📋 **Setup Required**")
             st.markdown("""
             **To enable Google Drive integration:**
@@ -286,153 +280,143 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
 
             **Note:** This is a development setup. Production deployments should use proper credential management.
             """)
-            return None
+            return False
+        return True
 
-        if not self.authenticated:
-            st.warning("🔐 Authentication required for Google Drive access")
-
-            # Check if we have credentials file but no token
-            token_file = 'token.json'
-            if not os.path.exists(token_file):
-                st.info("🔐 **Easy Authentication Setup**")
-
-                # Check if we're in authentication flow
-                if 'gdrive_auth_flow' not in st.session_state:
-                    st.session_state.gdrive_auth_flow = False
-
-                if not st.session_state.gdrive_auth_flow:
-                    # Option 1: Start direct authentication
-                    col1, col2 = st.columns([1, 1])
-
-                    with col1:
-                        if st.button("🚀 Start Authentication", type="primary", help="Click to start the OAuth flow"):
-                            st.session_state.gdrive_auth_flow = True
-                            st.rerun()
-
-                    with col2:
-                        if st.button("🔄 Check Status", help="Check if authentication is complete"):
-                            st.rerun()
-
-                    st.markdown("---")
-
-                    # Option 2: Upload token file
-                    st.markdown("**Alternative: Upload Token File**")
-                    st.caption("If you have a token.json file from a previous authentication:")
-
-                    uploaded_token = st.file_uploader(
-                        "Upload token.json file",
-                        type=['json'],
-                        help="Upload a previously saved token.json file"
-                    )
-
-                    if uploaded_token is not None:
-                        try:
-                            # Save the uploaded token file
-                            with open('token.json', 'wb') as f:
-                                f.write(uploaded_token.getbuffer())
-                            st.success("Token file uploaded successfully!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Failed to save token file: {e}")
-                else:
-                    # Show OAuth flow
-                    if self._perform_oauth_flow():
-                        st.session_state.gdrive_auth_flow = False
+    def _handle_authentication_flow(self):
+        """Handle authentication UI and logic."""
+        token_file = 'token.json'
+        if not os.path.exists(token_file):
+            st.info("🔐 **Easy Authentication Setup**")
+            if 'gdrive_auth_flow' not in st.session_state:
+                st.session_state.gdrive_auth_flow = False
+            if not st.session_state.gdrive_auth_flow:
+                col1, col2 = st.columns([1, 1])
+                with col1:
+                    if st.button("🚀 Start Authentication", type="primary", help="Click to start the OAuth flow"):
+                        st.session_state.gdrive_auth_flow = True
                         st.rerun()
-
-                    if st.button("⬅️ Back"):
-                        st.session_state.gdrive_auth_flow = False
+                with col2:
+                    if st.button("🔄 Check Status", help="Check if authentication is complete"):
                         st.rerun()
+                st.markdown("---")
+                st.markdown("**Alternative: Upload Token File**")
+                st.caption("If you have a token.json file from a previous authentication:")
+                uploaded_token = st.file_uploader(
+                    "Upload token.json file",
+                    type=['json'],
+                    help="Upload a previously saved token.json file"
+                )
+                if uploaded_token is not None:
+                    try:
+                        with open('token.json', 'wb') as f:
+                            f.write(uploaded_token.getbuffer())
+                        st.success("Token file uploaded successfully!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Failed to save token file: {e}")
             else:
-                if st.button("🔄 Refresh Authentication", type="primary"):
+                if self._perform_oauth_flow():
+                    st.session_state.gdrive_auth_flow = False
                     st.rerun()
-            return None
+                if st.button("⬅️ Back"):
+                    st.session_state.gdrive_auth_flow = False
+                    st.rerun()
+            return True
+        else:
+            if st.button("🔄 Refresh Authentication", type="primary"):
+                st.rerun()
+            return True
+        return False
 
-        # Show connection status with user identity
+    def _handle_folder_selection(self, folders):
+        """Handle folder selection UI and return folder info or None."""
+        folder_options = ["Root Folder"]
+        folder_map = {"Root Folder": "root"}
+        for folder in folders:
+            display_name = f"📁 {folder['name']}"
+            folder_options.append(display_name)
+            folder_map[display_name] = folder['id']
+        folder_options.append("🔧 Enter Folder ID/Path Manually")
+        if folder_options:
+            selected_folder = st.selectbox(
+                "Select Google Drive folder to scan:",
+                folder_options,
+                help="Choose a folder to scan for duplicate files"
+            )
+            if selected_folder == "🔧 Enter Folder ID/Path Manually":
+                return self._handle_manual_folder_entry()
+            else:
+                folder_id = folder_map.get(selected_folder, "root")
+                include_subfolders = st.checkbox(
+                    "🔄 Include subfolders (recursive scan)",
+                    value=True,
+                    help="Scan all subfolders within the selected folder"
+                )
+                return {
+                    'folder_id': folder_id,
+                    'recursive': include_subfolders
+                }
+        else:
+            st.info("No accessible folders found in Google Drive")
+            return {
+                'folder_id': "root",
+                'recursive': True
+            }
+
+    def _handle_manual_folder_entry(self):
+        """Handle manual folder ID or URL entry."""
+        manual_folder = st.text_input(
+            "Enter Google Drive Folder ID or URL:",
+            placeholder="e.g., 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms or https://drive.google.com/drive/folders/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms",
+            help="Enter the folder ID or paste the full Google Drive folder URL"
+        )
+        if manual_folder:
+            # Extract folder ID from URL if necessary
+            if "drive.google.com" in manual_folder:
+                import re
+                folder_id_match = re.search(r'/folders/([a-zA-Z0-9-_]+)', manual_folder)
+                if folder_id_match:
+                    folder_id = folder_id_match.group(1)
+                    st.success(f"Extracted folder ID: {folder_id}")
+                else:
+                    st.error("Could not extract folder ID from URL")
+                    return None
+            else:
+                folder_id = manual_folder.strip()
+
+            # Add recursive option
+            include_subfolders = st.checkbox(
+                "🔄 Include subfolders (recursive scan)",
+                value=True,
+                help="Scan all subfolders within the selected folder"
+            )
+
+            return {
+                'folder_id': folder_id,
+                'recursive': include_subfolders
+            }
+        return None
+
+    def get_directory_input_widget(self):
+        """Return widget for Google Drive folder selection"""
+        import streamlit as st
+
+        if not self._check_dependencies():
+            return None
+        if not self.authenticated:
+            if self._handle_authentication_flow():
+                return None
+            else:
+                return None
         user_info = self._get_user_info()
         if user_info:
             st.success(f"✅ Connected to Google Drive as **{user_info['name']}** ({user_info['email']})")
         else:
             st.success("✅ Connected to Google Drive")
-
-        # Get available folders
         try:
             folders = self._get_folders()
-
-            # Create folder options
-            folder_options = ["Root Folder"]
-            folder_map = {"Root Folder": "root"}
-
-            for folder in folders:
-                display_name = f"📁 {folder['name']}"
-                folder_options.append(display_name)
-                folder_map[display_name] = folder['id']
-
-            # Add option for manual folder ID entry
-            folder_options.append("🔧 Enter Folder ID/Path Manually")
-
-            if folder_options:
-                selected_folder = st.selectbox(
-                    "Select Google Drive folder to scan:",
-                    folder_options,
-                    help="Choose a folder to scan for duplicate files"
-                )
-
-                # Handle manual folder ID entry
-                if selected_folder == "🔧 Enter Folder ID/Path Manually":
-                    manual_folder = st.text_input(
-                        "Enter Google Drive Folder ID or URL:",
-                        placeholder="e.g., 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms or https://drive.google.com/drive/folders/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms",
-                        help="Enter the folder ID or paste the full Google Drive folder URL"
-                    )
-
-                    if manual_folder:
-                        # Extract folder ID from URL if necessary
-                        if "drive.google.com" in manual_folder:
-                            import re
-                            folder_id_match = re.search(r'/folders/([a-zA-Z0-9-_]+)', manual_folder)
-                            if folder_id_match:
-                                folder_id = folder_id_match.group(1)
-                                st.success(f"Extracted folder ID: {folder_id}")
-                            else:
-                                st.error("Could not extract folder ID from URL")
-                                return None
-                        else:
-                            folder_id = manual_folder.strip()
-
-                        # Add recursive option
-                        include_subfolders = st.checkbox(
-                            "🔄 Include subfolders (recursive scan)",
-                            value=True,
-                            help="Scan all subfolders within the selected folder"
-                        )
-
-                        return {
-                            'folder_id': folder_id,
-                            'recursive': include_subfolders
-                        }
-                    return None
-                else:
-                    folder_id = folder_map.get(selected_folder, "root")
-
-                    # Add recursive option for selected folders
-                    include_subfolders = st.checkbox(
-                        "🔄 Include subfolders (recursive scan)",
-                        value=True,
-                        help="Scan all subfolders within the selected folder"
-                    )
-
-                    return {
-                        'folder_id': folder_id,
-                        'recursive': include_subfolders
-                    }
-            else:
-                st.info("No accessible folders found in Google Drive")
-                return {
-                    'folder_id': "root",
-                    'recursive': True
-                }
-
+            return self._handle_folder_selection(folders)
         except Exception as e:
             st.error(f"Error accessing Google Drive: {e}")
             return None
@@ -554,6 +538,83 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
 
         return all_files
 
+    def _collect_files(self, folder_id, recursive, status_text):
+        """Collect all files from the specified folder (recursively if needed)"""
+        all_files = []
+        if recursive:
+            status_text.text("Discovering folders and files recursively...")
+            all_files = self._get_files_recursive(folder_id)
+        else:
+            status_text.text("Fetching file list from Google Drive...")
+            page_token = None
+            while True:
+                files, page_token = self._get_files(folder_id, page_token)
+                all_files.extend(files)
+                if not page_token:
+                    break
+        return all_files
+
+    def _apply_file_filters(self, file_info, exclude_hidden, min_size_kb, max_size_kb):
+        """Apply filters to a file and return skip reason if any, else None"""
+        file_name = file_info.get('name', '')
+        file_size_bytes = int(file_info.get('size', 0))
+        file_size_kb = file_size_bytes / 1024
+        if exclude_hidden and file_name.startswith('.'):
+            return "hidden file"
+        if file_size_kb < min_size_kb:
+            return f"too small ({file_size_kb:.1f} KB < {min_size_kb} KB)"
+        if max_size_kb > 0 and file_size_kb > max_size_kb:
+            return f"too large ({file_size_kb:.1f} KB > {max_size_kb} KB)"
+        return None
+
+    def _process_file(self, file_info, file_dict, skipped_no_hash):
+        """Process a single file: calculate hash, group, and update counters"""
+        file_name = file_info.get('name', '')
+        file_size_bytes = int(file_info.get('size', 0))
+        file_hash = file_info.get('md5Checksum')
+        if not file_hash:
+            file_hash = f"fallback_{file_name}_{file_size_bytes}"
+            skipped_no_hash += 1
+        file_id = file_info.get('webViewLink', file_info.get('id', ''))
+        if file_hash not in file_dict:
+            file_dict[file_hash] = []
+        file_dict[file_hash].append({
+            'path': file_id,
+            'name': file_name,
+            'size': file_size_bytes,
+            'id': file_info.get('id', ''),
+            'mimeType': file_info.get('mimeType', ''),
+            'webViewLink': file_info.get('webViewLink', ''),
+            'has_md5': bool(file_info.get('md5Checksum')),
+            'md5_hash': file_info.get('md5Checksum', 'fallback')
+        })
+        return skipped_no_hash
+
+    def _show_scan_summary(self, total_files, processed_files, skipped_no_hash, skipped_filters, duplicates, file_dict):
+        """Log and display scan summary"""
+        logger.info(f"📊 **Scan Summary:**")
+        logger.info(f"- Total files found: {total_files}")
+        logger.info(f"- Files processed: {processed_files}")
+        logger.info(f"- Files skipped (no MD5): {skipped_no_hash}")
+        logger.info(f"- Files skipped (filters): {skipped_filters}")
+        logger.info(f"- Duplicate groups found: {len(duplicates)}")
+        if processed_files > 0:
+            logger.info("**All processed files with hashes:**")
+            for hash_key, files in file_dict.items():
+                hash_display = hash_key[:16] + "..." if len(hash_key) > 16 else hash_key
+                logger.debug(f"**Hash {hash_display}:** {len(files)} file(s)")
+                for file in files:
+                    md5_display = file['md5_hash'][:8] + "..." if file['md5_hash'] != 'fallback' and len(file['md5_hash']) > 8 else file['md5_hash']
+                    logger.debug(f"  - {file['name']} ({file['size']} bytes, MD5: {md5_display})")
+        if duplicates:
+            for i, (hash_key, files) in enumerate(list(duplicates.items())[:3]):
+                logger.info(f"**Group {i+1}:** {len(files)} files")
+                for file in files:
+                    hash_type = "MD5" if file.get('has_md5') else "Name+Size"
+                    logger.debug(f"  - {file['name']} ({hash_type})")
+            if len(duplicates) > 3:
+                logger.info(f"... and {len(duplicates) - 3} more groups")
+
     def scan_directory(self, directory, exclude_shortcuts: bool = True,
                       exclude_hidden: bool = True, exclude_system: bool = True,
                       min_size_kb: int = 0, max_size_kb: int = 0) -> Dict[str, List[str]]:
@@ -576,18 +637,6 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         # Create a placeholder for status messages that will be reused
         status_placeholder = st.empty()
 
-        # Function to display a status message for at least 5 seconds
-        # last_message_time = [time.time()]  # Using list to make it mutable in nested function
-
-        # def show_status(message):
-        #     # current_time = time.time()
-        #     # # Ensure previous message showed for at least 5 seconds
-        #     # if current_time - last_message_time[0] < 5:
-        #     #     time.sleep(5 - (current_time - last_message_time[0]))
-        #     # Update the message and time
-        #     status_placeholder.info(message)
-        #     # last_message_time[0] = time.time()
-
         # Initial status message
         status_placeholder.info("🔍 Scanning Google Drive for duplicates...")
 
@@ -601,25 +650,11 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         try:
             file_dict = {}
             processed_files = 0
-            total_files = 0
             skipped_no_hash = 0
             skipped_filters = 0
 
             # Get all files from the specified folder and subfolders
-            all_files = []
-
-            if recursive:
-                status_text.text("Discovering folders and files recursively...")
-                all_files = self._get_files_recursive(folder_id)
-            else:
-                status_text.text("Fetching file list from Google Drive...")
-                page_token = None
-                while True:
-                    files, page_token = self._get_files(folder_id, page_token)
-                    all_files.extend(files)
-                    if not page_token:
-                        break
-
+            all_files = self._collect_files(folder_id, recursive, status_text)
             total_files = len(all_files)
             status_text.text(f"Found {total_files} files. Analyzing for duplicates...")
 
@@ -630,16 +665,14 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             # Show processing status
             status_placeholder.info(f"🔍 Processing {total_files} files from Google Drive...")
 
-            # Show first few files for debugging
-            if total_files > 0:
-                logger.info("**First few files found:**")
-                for i, file_info in enumerate(all_files[:5]):
-                    file_name = file_info.get('name', 'Unknown')
-                    file_size = int(file_info.get('size', 0))
-                    has_md5 = bool(file_info.get('md5Checksum'))
-                    md5_hash = file_info.get('md5Checksum', 'None')[:8] + "..." if file_info.get('md5Checksum') else 'None'
-                    folder_path = file_info.get('folder_path', 'Unknown')
-                    logger.debug(f"  %s. %s (%s bytes, MD5: %s, Has MD5: %s) - Path: %s", i+1,file_name, file_size, md5_hash, has_md5, folder_path)
+            logger.info("**First few files found:**")
+            for i, file_info in enumerate(all_files[:5]):
+                file_name = file_info.get('name', 'Unknown')
+                file_size = int(file_info.get('size', 0))
+                has_md5 = bool(file_info.get('md5Checksum'))
+                md5_hash = file_info.get('md5Checksum', 'None')[:8] + "..." if file_info.get('md5Checksum') else 'None'
+                folder_path = file_info.get('folder_path', 'Unknown')
+                logger.debug(f"  %s. %s (%s bytes, MD5: %s, Has MD5: %s) - Path: %s", i+1,file_name, file_size, md5_hash, has_md5, folder_path)
 
             for i, file_info in enumerate(all_files):
                 try:
@@ -649,55 +682,12 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
                     status_text.text(f"Processing file {i + 1}/{total_files}: {file_info['name']}")
 
                     # Apply filters
-                    file_name = file_info.get('name', '')
-                    file_size_bytes = int(file_info.get('size', 0))
-                    file_size_kb = file_size_bytes / 1024
-
-                    # Debug: Log filter decisions
-                    skip_reason = None
-
-                    # Skip hidden files
-                    if exclude_hidden and file_name.startswith('.'):
+                    skip_reason = self._apply_file_filters(file_info, exclude_hidden, min_size_kb, max_size_kb)
+                    if skip_reason:
                         skipped_filters += 1
-                        skip_reason = "hidden file"
                         continue
 
-                    # Skip by size
-                    if file_size_kb < min_size_kb:
-                        skipped_filters += 1
-                        skip_reason = f"too small ({file_size_kb:.1f} KB < {min_size_kb} KB)"
-                        continue
-                    if max_size_kb > 0 and file_size_kb > max_size_kb:
-                        skipped_filters += 1
-                        skip_reason = f"too large ({file_size_kb:.1f} KB > {max_size_kb} KB)"
-                        continue
-
-                    # Use MD5 checksum if available, otherwise use name + size for basic duplicate detection
-                    file_hash = file_info.get('md5Checksum')
-                    if not file_hash:
-                        # Fallback: use filename and size as identifier for files without MD5
-                        # This is less accurate but better than skipping files entirely
-                        file_hash = f"fallback_{file_name}_{file_size_bytes}"
-                        skipped_no_hash += 1
-
-                    # Create file identifier (use webViewLink for easy access)
-                    file_id = file_info.get('webViewLink', file_info.get('id', ''))
-
-                    # Group by hash
-                    if file_hash not in file_dict:
-                        file_dict[file_hash] = []
-
-                    file_dict[file_hash].append({
-                        'path': file_id,
-                        'name': file_name,
-                        'size': file_size_bytes,
-                        'id': file_info.get('id', ''),
-                        'mimeType': file_info.get('mimeType', ''),
-                        'webViewLink': file_info.get('webViewLink', ''),
-                        'has_md5': bool(file_info.get('md5Checksum')),
-                        'md5_hash': file_info.get('md5Checksum', 'fallback')
-                    })
-
+                    skipped_no_hash = self._process_file(file_info, file_dict, skipped_no_hash)
                     processed_files += 1
 
                 except Exception as e:
@@ -711,25 +701,10 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             # Clean up progress indicators
             progress_bar.empty()
             status_text.empty()
-            status_placeholder.empty()  # Clean up our status messages placeholder
+            status_placeholder.empty()
 
-            # Show detailed results
-            logger.info(f"📊 **Scan Summary:**")
-            logger.info(f"- Total files found: {total_files}")
-            logger.info(f"- Files processed: {processed_files}")
-            logger.info(f"- Files skipped (no MD5): {skipped_no_hash}")
-            logger.info(f"- Files skipped (filters): {skipped_filters}")
-            logger.info(f"- Duplicate groups found: {len(duplicates)}")
-
-            # Debug: Show all processed files and their hashes
-            if processed_files > 0:
-                logger.info("**All processed files with hashes:**")
-                for hash_key, files in file_dict.items():
-                    hash_display = hash_key[:16] + "..." if len(hash_key) > 16 else hash_key
-                    logger.debug(f"**Hash {hash_display}:** {len(files)} file(s)")
-                    for file in files:
-                        md5_display = file['md5_hash'][:8] + "..." if file['md5_hash'] != 'fallback' and len(file['md5_hash']) > 8 else file['md5_hash']
-                        logger.debug(f"  - {file['name']} ({file['size']} bytes, MD5: {md5_display})")
+            # Show scan summary
+            self._show_scan_summary(total_files, processed_files, skipped_no_hash, skipped_filters, duplicates, file_dict)
 
             if duplicates:
                 duplicate_count = sum(len(group) for group in duplicates.values())
@@ -760,7 +735,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         except Exception as e:
             progress_bar.empty()
             status_text.empty()
-            status_placeholder.empty()  # Clean up our status messages placeholder
+            status_placeholder.empty()
             st.error(f"Error scanning Google Drive: {e}")
             return {}
 
