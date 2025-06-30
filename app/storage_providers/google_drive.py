@@ -10,6 +10,32 @@ logger = logging.getLogger(__name__)
 
 
 class GoogleAuthenticator:
+    def __init__(self):
+        self.authenticated = False
+        self.credentials = None
+        self.service = None
+        self._setup_credentials()
+
+    def _setup_credentials(self):
+        """Setup Google Drive API credentials"""
+        import streamlit as st
+
+        # Check if credentials are already stored in session state
+        if 'gdrive_credentials' in st.session_state:
+            self.credentials = st.session_state.gdrive_credentials
+            self.authenticated = True
+            self._build_service()
+
+    def _build_service(self):
+        """Build Google Drive API service"""
+        try:
+            from googleapiclient.discovery import build
+            if self.credentials:
+                self.service = build('drive', 'v3', credentials=self.credentials)
+                return True
+        except ImportError:
+            return False
+        return False
 
     def _perform_oauth_flow(self):
         """Perform OAuth flow directly in the application"""
@@ -158,32 +184,8 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
     """Google Drive storage provider with OAuth2 authentication"""
 
     def __init__(self):
-        super().__init__("Google Drive")
-        self.authenticated = False
-        self.credentials = None
-        self.service = None
-        self._setup_credentials()
-
-    def _setup_credentials(self):
-        """Setup Google Drive API credentials"""
-        import streamlit as st
-
-        # Check if credentials are already stored in session state
-        if 'gdrive_credentials' in st.session_state:
-            self.credentials = st.session_state.gdrive_credentials
-            self.authenticated = True
-            self._build_service()
-
-    def _build_service(self):
-        """Build Google Drive API service"""
-        try:
-            from googleapiclient.discovery import build
-            if self.credentials:
-                self.service = build('drive', 'v3', credentials=self.credentials)
-                return True
-        except ImportError:
-            return False
-        return False
+        BaseStorageProvider.__init__(self, "Google Drive")
+        GoogleAuthenticator.__init__(self)
 
     def authenticate(self) -> bool:
         """Check authentication status and return True if authenticated"""
@@ -811,7 +813,6 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
     def get_scan_success_msg(self, duplicate_groups: int, duplicate_count: int) -> str:
         """Return custom success message for Google Drive scan completion"""
         return f"✅ Scan complete! Found {duplicate_groups} groups containing {duplicate_count} duplicate files."
-    # f"✅ Scan complete! Found {len(duplicates)} groups containing {duplicate_count} duplicate files."
 
     def get_file_info(self, file: str) -> dict:
         """Get Google Drive file info"""
