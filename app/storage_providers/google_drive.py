@@ -766,9 +766,6 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
 
     def delete_files(self, files: List[str]) -> bool:
         """Delete files from Google Drive"""
-        # Import streamlit at the top level to avoid errors
-        import streamlit as st
-
         if not self.authenticated or not self.service:
             st.error("Not authenticated with Google Drive")
             return False
@@ -778,38 +775,43 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             total_count = len(files)
 
             for file_path in files:
-                try:
-                    # Extract file ID from path (assumes file_path contains file metadata)
-                    if isinstance(file_path, dict):
-                        file_id = file_path.get('id')
-                        file_name = file_path.get('name', 'Unknown')
-                    else:
-                        # Fallback for string paths - not ideal but handles edge cases
-                        file_id = file_path
-                        file_name = file_path
+                file_id, file_name = self._extract_file_id_and_name(file_path)
+                if file_id and self._delete_single_file(file_id, file_name):
+                    success_count += 1
 
-                    if file_id:
-                        # Move file to trash instead of permanent deletion
-                        self.service.files().update(
-                            fileId=file_id,
-                            body={'trashed': True}
-                        ).execute()
-                        success_count += 1
-                        st.success(f"✅ Moved '{file_name}' to trash")
-
-                except Exception as e:
-                    st.error(f"❌ Failed to delete '{file_name}': {e}")
-
-            if success_count == total_count:
-                st.success(f"Successfully moved {success_count} files to trash")
-                return True
-            else:
-                st.warning(f"Moved {success_count}/{total_count} files to trash")
-                return success_count > 0
+            return self._process_deletion_results(success_count, total_count)
 
         except Exception as e:
             st.error(f"Error during file deletion: {e}")
             return False
+
+    def _extract_file_id_and_name(self, file: dict) -> tuple[str, str]:
+        """Extract file ID and name from Google Drive file dictionary"""
+        return file.get('id'), file.get('name', 'Unknown')
+
+    def _delete_single_file(self, file_id: str, file_name: str) -> bool:
+        """Delete/Trash a single file from Google Drive"""
+        try:
+            # Move file to trash instead of permanent deletion
+            self.service.files().update(
+                fileId=file_id,
+                body={'trashed': True}
+            ).execute()
+            st.success(f"✅ Moved '{file_name}' to trash")
+            return True
+        except Exception as e:
+            st.error(f"❌ Failed to delete '{file_name}': {e}")
+            return False
+
+    def _process_deletion_results(self, success_count: int, total_count: int) -> bool:
+        """Process and display the results of batch deletion"""
+        if success_count == total_count:
+            st.success(f"Successfully moved {success_count} files to trash")
+            return True
+        elif success_count > 0:
+            st.warning(f"Moved {success_count}/{total_count} files to trash")
+            return True
+        return False
 
     def get_scan_success_msg(self, duplicate_groups: int, duplicate_count: int) -> str:
         """Return custom success message for Google Drive scan completion"""
