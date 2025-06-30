@@ -3,6 +3,8 @@ name: Pylint
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+  # Optional: Allow manual triggering
+  workflow_dispatch:
 
 jobs:
   build:
