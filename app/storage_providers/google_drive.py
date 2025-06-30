@@ -1,7 +1,8 @@
+import io
 import os
-import hashlib
-import json
 import logging
+import requests
+import streamlit as st
 from typing import Dict, List, Optional
 from .base import BaseStorageProvider
 from ..utils import human_readable_size
@@ -879,127 +880,22 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
 
     def preview_file(self, file: str):
         """Preview Google Drive file - only handles preview content, no layout"""
-        import streamlit as st
-
-        if isinstance(file, dict):
-            file_info = file
-            file_name = file_info.get('name', 'Unknown')
-            file_id = file_info.get('id', '')
-            mime_type = file_info.get('mimeType', '')
-
-            # Enhanced image preview section
-            if mime_type.startswith('image/'):
-                # Try to show thumbnail if possible
-                if file_id:
-                    preview_success = False
-
-                    # Skip thumbnail and go directly to blob download for better reliability
-                    try:
-                        # st.info("🔄 Loading image from Google Drive...")
-
-                        # Download the file content using Google Drive API
-                        file_content = self.service.files().get_media(fileId=file_id).execute()
-
-                        # Create thumbnail from the downloaded image
-                        try:
-                            from PIL import Image
-                            import io
-
-                            # Open the image from bytes
-                            image = Image.open(io.BytesIO(file_content))
-
-                            # Create a square thumbnail for consistent display
-                            # This will crop to fit if needed to avoid very long/wide images
-                            thumbnail_size = (250, 250)
-
-                            # Calculate dimensions to crop to square if needed
-                            width, height = image.size
-                            if width != height:
-                                # Crop to square using the center of the image
-                                min_dimension = min(width, height)
-                                left = (width - min_dimension) // 2
-                                top = (height - min_dimension) // 2
-                                right = left + min_dimension
-                                bottom = top + min_dimension
-                                image = image.crop((left, top, right, bottom))
-
-                            # Now create thumbnail of the square image
-                            image.thumbnail(thumbnail_size, Image.Resampling.LANCZOS)
-
-                            # Convert back to bytes for display
-                            thumbnail_buffer = io.BytesIO()
-                            # Preserve original format if possible, otherwise use PNG
-                            format_type = image.format if image.format else 'PNG'
-                            image.save(thumbnail_buffer, format=format_type)
-                            thumbnail_bytes = thumbnail_buffer.getvalue()
-
-                            # Display the thumbnail in a constrained container
-                            # st.image(thumbnail_bytes, caption=f"Preview of {file_name}", width=250)
-                            st.image(thumbnail_bytes, width=250)
-                            # st.success("✅ Square thumbnail created from Google Drive image")
-                            preview_success = True
-
-                        except ImportError:
-                            # PIL not available, use width parameter to limit display size
-                            st.image(file_content, caption=f"Preview of {file_name}", width=250)
-                            st.success("✅ Image loaded from Google Drive (install Pillow for better thumbnails)")
-                            preview_success = True
-
-                        except Exception as pil_error:
-                            # If PIL processing fails, fall back to width-limited display
-                            st.image(file_content, caption=f"Preview of {file_name}", width=250)
-                            st.warning(f"⚠️ Could not create thumbnail: {pil_error}")
-                            preview_success = True
-
-                    except Exception as blob_error:
-                        # Fallback to thumbnail if blob download fails
-                        try:
-                            st.info("🔄 Trying thumbnail preview...")
-                            thumbnail_url = f"https://drive.google.com/thumbnail?id={file_id}&sz=w250"
-
-                            # Validate thumbnail response before displaying
-                            import requests
-                            response = requests.head(thumbnail_url)
-                            if response.status_code == 200:
-                                st.image(thumbnail_url, caption=f"Preview of {file_name}", width=250)
-                                st.caption("📌 Thumbnail preview")
-                                preview_success = True
-                            else:
-                                raise Exception(f"Thumbnail not accessible (status: {response.status_code})")
-
-                        except Exception as thumb_error:
-                            st.warning(f"⚠️ Could not load image: {blob_error}")
-                            st.warning(f"⚠️ Thumbnail also failed: {thumb_error}")
-                            preview_success = False
-
-                    if not preview_success:
-                        # Fallback options when both thumbnail and blob download fail
-                        st.info("🖼️ **Image Preview Options:**")
-                        st.write("• Click 'Open in Google Drive' to view the full image")
-                        st.write("• Click 'Preview in New Tab' for a larger view")
-                        st.write("• Click 'Download Image' to save locally")
-
-                else:
-                    st.info("📋 Click the links above to view this image in Google Drive")
-
-            # For non-image files
-            # elif mime_type.startswith('video/'):
-            #     st.info("🎥 Click 'Open in Google Drive' to play this video")
-
-            # elif mime_type.startswith('audio/'):
-            #     st.info("🎵 Click 'Open in Google Drive' to play this audio")
-
-            elif mime_type == 'application/pdf':
-                # st.info("📄 Click 'Open in Google Drive' to view this PDF")
-                if file_id:
-                    pdf_embed_url = f"https://drive.google.com/file/d/{file_id}/preview"
-                    st.markdown(f"**📖 [View PDF]({pdf_embed_url})**")
-
-            else:
-                st.info("📁 'Open in Google Drive'")
-
-        else:
+        if not isinstance(file, dict):
             st.info("File preview not available for this Google Drive file")
+            return
+
+        file_info = file
+        file_name = file_info.get('name', 'Unknown')
+        file_id = file_info.get('id', '')
+        mime_type = file_info.get('mimeType', '')
+
+        # Handle different file types
+        if mime_type.startswith('image/'):
+            self._preview_image(file_id, file_name)
+        elif mime_type == 'application/pdf':
+            self._preview_pdf(file_id)
+        else:
+            st.info("📁 'Open in Google Drive'")
 
     def get_file_extra_info(self, file_path: str) -> dict:
         """Get Google Drive specific extra information for UI display"""
@@ -1057,3 +953,101 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         else:
             # Fallback for string paths
             return str(file)
+
+    def _preview_image(self, file_id: str, file_name: str) -> bool:
+        """Handle image file preview with multiple fallback options"""
+        if not file_id:
+            st.info("📋 Click the links above to view this image in Google Drive")
+            return False
+
+        # Try direct download first
+        preview_success = self._handle_image_download(file_id, file_name)
+
+        # If direct download failed, try thumbnail
+        if not preview_success:
+            preview_success = self._try_thumbnail_preview(file_id, file_name)
+
+        # If both methods failed, show fallback options
+        if not preview_success:
+            self._show_image_fallback_options()
+
+        return preview_success
+
+    def _create_image_thumbnail(self, image_data: bytes, file_name: str) -> bool:
+        """Create and display a square thumbnail from image data"""
+        try:
+            from PIL import Image
+            image = Image.open(io.BytesIO(image_data))
+
+            # Create a square thumbnail
+            thumbnail_size = (250, 250)
+            width, height = image.size
+
+            # Crop to square if needed
+            if width != height:
+                min_dimension = min(width, height)
+                left = (width - min_dimension) // 2
+                top = (height - min_dimension) // 2
+                right = left + min_dimension
+                bottom = top + min_dimension
+                image = image.crop((left, top, right, bottom))
+
+            # Create thumbnail
+            image.thumbnail(thumbnail_size, Image.Resampling.LANCZOS)
+
+            # Save thumbnail
+            thumbnail_buffer = io.BytesIO()
+            format_type = image.format if image.format else 'PNG'
+            image.save(thumbnail_buffer, format=format_type)
+
+            # Display
+            st.image(thumbnail_buffer.getvalue(), width=250)
+            return True
+
+        except ImportError:
+            # Fallback if PIL not available
+            st.image(image_data, caption=f"Preview of {file_name}", width=250)
+            st.success("✅ Image loaded from Google Drive (install Pillow for better thumbnails)")
+            return True
+
+        except Exception as e:
+            # Fallback to basic display if thumbnail creation fails
+            st.image(image_data, caption=f"Preview of {file_name}", width=250)
+            st.warning(f"⚠️ Could not create thumbnail: {e}")
+            return True
+
+    def _handle_image_download(self, file_id: str, file_name: str) -> bool:
+        """Download and display image from Google Drive"""
+        try:
+            file_content = self.service.files().get_media(fileId=file_id).execute()
+            return self._create_image_thumbnail(file_content, file_name)
+        except Exception:
+            return False
+
+    def _try_thumbnail_preview(self, file_id: str, file_name: str) -> bool:
+        """Try to display image using Google Drive thumbnail API"""
+        try:
+            st.info("🔄 Trying thumbnail preview...")
+            thumbnail_url = f"https://drive.google.com/thumbnail?id={file_id}&sz=w250"
+
+            response = requests.head(thumbnail_url)
+            if response.status_code == 200:
+                st.image(thumbnail_url, caption=f"Preview of {file_name}", width=250)
+                st.caption("📌 Thumbnail preview")
+                return True
+            return False
+        except Exception:
+            return False
+
+    def _show_image_fallback_options(self):
+        """Show fallback options when image preview fails"""
+        st.info("🖼️ **Image Preview Options:**")
+        st.write("• Click 'Open in Google Drive' to view the full image")
+        st.write("• Click 'Preview in New Tab' for a larger view")
+        st.write("• Click 'Download Image' to save locally")
+
+    def _preview_pdf(self, file_id: str):
+        """Handle PDF file preview"""
+        if file_id:
+            pdf_embed_url = f"https://drive.google.com/file/d/{file_id}/preview"
+            st.markdown(f"**📖 [View PDF]({pdf_embed_url})**")
