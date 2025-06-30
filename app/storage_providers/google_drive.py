@@ -1,9 +1,10 @@
 import os
 import hashlib
 import json
+import logging
 from typing import Dict, List, Optional
 from .base import BaseStorageProvider
-import logging
+from ..utils import human_readable_size
 
 logger = logging.getLogger(__name__)
 
@@ -843,9 +844,11 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             else:
                 modified_formatted = 'Unknown'
 
+            size_bytes = int(file_info.get('size', 0))
             return {
                 'name': file_info.get('name', 'Unknown'),
-                'size': file_info.get('size', 0),
+                'size': size_bytes,
+                'size_formatted': human_readable_size(size_bytes),
                 'extension': self._get_file_extension(file_info.get('name', '')),
                 'path': file_info.get('webViewLink', file_info.get('id', '')),
                 'mime_type': file_info.get('mimeType', ''),
@@ -858,6 +861,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             return {
                 'name': 'Unknown',
                 'size': 0,
+                'size_formatted': human_readable_size(0),
                 'extension': '',
                 'path': file,
                 'mime_type': '',
@@ -995,14 +999,6 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
 
         else:
             st.info("File preview not available for this Google Drive file")
-
-    def _format_file_size(self, size_bytes: int) -> str:
-        """Format file size in human readable format"""
-        for unit in ['B', 'KB', 'MB', 'GB']:
-            if size_bytes < 1024:
-                return f"{size_bytes:.1f} {unit}"
-            size_bytes /= 1024
-        return f"{size_bytes:.1f} TB"
 
     def get_file_extra_info(self, file_path: str) -> dict:
         """Get Google Drive specific extra information for UI display"""
