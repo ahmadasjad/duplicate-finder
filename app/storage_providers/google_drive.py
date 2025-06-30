@@ -817,49 +817,52 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         """Return custom success message for Google Drive scan completion"""
         return f"✅ Scan complete! Found {duplicate_groups} groups containing {duplicate_count} duplicate files."
 
+    def _format_timestamp(self, timestamp: str, default: str = 'Unknown') -> str:
+        """Format ISO timestamp to readable format"""
+        if not timestamp:
+            return default
+
+        try:
+            from datetime import datetime
+            dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+            return dt.strftime('%Y-%m-%d %H:%M:%S')
+        except:
+            return timestamp
+
+    def _extract_time_info(self, file_info: dict) -> tuple[str, str]:
+        """Extract and format creation and modification times from file info"""
+        created_time = file_info.get('createdTime', '')
+        modified_time = file_info.get('modifiedTime', '')
+
+        created_formatted = self._format_timestamp(created_time) if created_time else 'Unknown'
+        modified_formatted = self._format_timestamp(modified_time) if modified_time else 'Unknown'
+
+        return created_formatted, modified_formatted
+
+    def _create_file_info_dict(self, file_info: dict) -> dict:
+        """Create a standardized file info dictionary from Google Drive file info"""
+        # Extract timestamps
+        created_formatted, modified_formatted = self._extract_time_info(file_info)
+
+        # Get file size
+        size_bytes = int(file_info.get('size', 0))
+
+        return {
+            'name': file_info.get('name', 'Unknown'),
+            'size': size_bytes,
+            'size_formatted': human_readable_size(size_bytes),
+            'extension': self._get_file_extension(file_info.get('name', '')),
+            'path': file_info.get('webViewLink', file_info.get('id', '')),
+            'mime_type': file_info.get('mimeType', ''),
+            'created': created_formatted,
+            'modified': modified_formatted,
+            'source': 'Google Drive'
+        }
+
     def get_file_info(self, file: str) -> dict:
         """Get Google Drive file info"""
         if isinstance(file, dict):
-            file_info = file
-
-            # Format creation time
-            created_time = file_info.get('createdTime', '')
-            if created_time:
-                try:
-                    from datetime import datetime
-                    # Parse ISO format timestamp
-                    dt = datetime.fromisoformat(created_time.replace('Z', '+00:00'))
-                    created_formatted = dt.strftime('%Y-%m-%d %H:%M:%S')
-                except:
-                    created_formatted = created_time
-            else:
-                created_formatted = 'Unknown'
-
-            # Format modified time
-            modified_time = file_info.get('modifiedTime', '')
-            if modified_time:
-                try:
-                    from datetime import datetime
-                    # Parse ISO format timestamp
-                    dt = datetime.fromisoformat(modified_time.replace('Z', '+00:00'))
-                    modified_formatted = dt.strftime('%Y-%m-%d %H:%M:%S')
-                except:
-                    modified_formatted = modified_time
-            else:
-                modified_formatted = 'Unknown'
-
-            size_bytes = int(file_info.get('size', 0))
-            return {
-                'name': file_info.get('name', 'Unknown'),
-                'size': size_bytes,
-                'size_formatted': human_readable_size(size_bytes),
-                'extension': self._get_file_extension(file_info.get('name', '')),
-                'path': file_info.get('webViewLink', file_info.get('id', '')),
-                'mime_type': file_info.get('mimeType', ''),
-                'created': created_formatted,
-                'modified': modified_formatted,
-                'source': 'Google Drive'
-            }
+            return self._create_file_info_dict(file)
         else:
             # Fallback for string paths
             return {
