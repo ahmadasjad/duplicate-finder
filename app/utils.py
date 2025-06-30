@@ -1,18 +1,22 @@
+"""Utility functions for the application."""
+
+import os
 from datetime import datetime
 
-def human_readable_size(size_in_bytes):
-    """Convert bytes to a human-readable format."""
-    for unit in ['B', 'KB', 'MB', 'GB']:
+def human_readable_size(size_in_bytes, upto_unit=None):
+    """Convert bytes to a human-readable format, optionally up to a specified unit (e.g., 'MB')."""
+    units = ['B', 'KB', 'MB', 'GB', 'TB']
+    for unit in units:
+        if upto_unit and unit == upto_unit:
+            return f"{size_in_bytes:.2f} {unit}"
         if size_in_bytes < 1024:
             return f"{size_in_bytes:.2f} {unit}"
         size_in_bytes /= 1024
-    return f"{size_in_bytes:.2f} TB"
+    return f"{size_in_bytes:.2f} {units[-1]}"
 
 def format_timestamp(timestamp):
     """Format timestamp to human-readable format."""
     return datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
-
-import os
 
 def get_file_info(file_path):
     """
@@ -40,8 +44,7 @@ def format_iso_timestamp(timestamp: str, default: str = 'Unknown') -> str:
     if not timestamp:
         return default
     try:
-        from datetime import datetime
         dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
         return dt.strftime('%Y-%m-%d %H:%M:%S')
-    except Exception:
+    except ValueError:
         return timestamp

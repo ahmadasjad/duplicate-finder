@@ -1,8 +1,13 @@
+"""Local filesystem storage provider implementation."""
+
 import os
 import hashlib
-from typing import Dict, List
-from .base import BaseStorageProvider
 import logging
+from typing import Dict, List
+from app.file_operations import is_file_shortcut, is_file_hidden, is_file_for_system
+from app.utils import get_file_info
+from app.preview import preview_file_inline
+from .base import BaseStorageProvider
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +24,7 @@ class LocalFileSystemProvider(BaseStorageProvider):
 
     def get_directory_input_widget(self):
         """Return text input for local directory path"""
-        import streamlit as st
+        import streamlit as st  # Kept inside to avoid unnecessary dependency if not used
 
         # Detect if running in Docker container
         is_docker = self._is_running_in_docker()
@@ -65,18 +70,9 @@ class LocalFileSystemProvider(BaseStorageProvider):
             default_dirs = [d for d in default_dirs if os.path.exists(d)]
             default_index = 0
 
-        # col1, col2 = st.columns([3, 1])
-        # with col1:
         if default_index >= len(default_dirs):
             default_index = 0
         directory = st.selectbox("Enter directory path:", options=default_dirs, accept_new_options=True, index=default_index)
-        # with col2:
-        #     if st.button("Browse", help="Quick select common directories"):
-        #         selected = st.selectbox("Quick select:", default_dirs, key="dir_select")
-        #         if selected:
-        #             st.session_state.directory_input = selected
-        #             st.rerun()
-
         return directory
 
     def _is_running_in_docker(self) -> bool:
@@ -87,7 +83,7 @@ class LocalFileSystemProvider(BaseStorageProvider):
                 return True
 
             # Method 2: Check cgroup for docker
-            with open('/proc/1/cgroup', 'r') as f:
+            with open('/proc/1/cgroup', 'r', encoding='utf-8') as f:
                 content = f.read()
                 if 'docker' in content or 'containerd' in content:
                     return True
@@ -125,40 +121,7 @@ class LocalFileSystemProvider(BaseStorageProvider):
         except (OSError, IOError):
             return None
 
-    def is_file_shortcut(self, file_path: str, file: str) -> bool:
-        """Check if a file is a shortcut or symlink."""
-        return (
-            os.path.islink(file_path)
-            or file.lower().endswith('.lnk')
-        )
-
-    def is_file_hidden(self, file_path: str, file: str) -> bool:
-        """Check if a file is hidden."""
-        if os.name != 'nt':  # Unix-like systems
-            return file.startswith('.')
-
-        # Windows systems
-        try:
-            import ctypes
-            attrs = ctypes.windll.kernel32.GetFileAttributesW(file_path)
-            return attrs != -1 and bool(attrs & 2)  # FILE_ATTRIBUTE_HIDDEN = 2
-        except (OSError, AttributeError):
-            return False
-
-    def is_file_for_system(self, file_path: str, file: str) -> bool:
-        """Check if a file is a system file."""
-        if os.name == 'nt' and os.path.isfile(file_path):
-            try:
-                import ctypes
-                attrs = ctypes.windll.kernel32.GetFileAttributesW(file_path)
-                return attrs != -1 and bool(attrs & 0x4)  # FILE_ATTRIBUTE_SYSTEM = 0x4
-            except (OSError, AttributeError):
-                return False
-        return False
-
-    def scan_directory(self, directory: str, exclude_shortcuts: bool = True,
-                      exclude_hidden: bool = True, exclude_system: bool = True,
-                      min_size_kb: int = 0, max_size_kb: int = 0) -> Dict[str, List[str]]:
+    def scan_directory(self, directory: str, filters) -> Dict[str, List[str]]:
         """Scan directory and identify duplicates with optional filters."""
         if not directory or not os.path.exists(directory):
             return {}
@@ -169,21 +132,19 @@ class LocalFileSystemProvider(BaseStorageProvider):
                 file_path = os.path.join(root, file)
 
                 # Skip files based on filters
-                if exclude_shortcuts and self.is_file_shortcut(file_path, file):
+                if filters.exclude_shortcuts and is_file_shortcut(file_path, file):
                     continue
-
-                if exclude_hidden and self.is_file_hidden(file_path, file):
+                if filters.exclude_hidden and is_file_hidden(file_path, file):
                     continue
-
-                if exclude_system and self.is_file_for_system(file_path, file):
+                if filters.exclude_system and is_file_for_system(file_path, file):
                     continue
 
                 # Check file size
                 try:
                     file_size = os.path.getsize(file_path) / 1024  # Convert to KB
-                    if file_size < min_size_kb:
+                    if file_size < filters.min_size_kb:
                         continue
-                    if max_size_kb > 0 and file_size > max_size_kb:
+                    if filters.max_size_kb > 0 and file_size > filters.max_size_kb:
                         continue
                 except OSError:
                     continue
@@ -205,21 +166,19 @@ class LocalFileSystemProvider(BaseStorageProvider):
                 if os.path.exists(file_path):
                     os.remove(file_path)
             return True
-        except Exception as e:
+        except OSError:
             return False
 
     def get_file_info(self, file: str) -> dict:
         """Get file information"""
         file_path = file
-        logger.info(f"Getting file info for: {file_path}")
+        logger.info("Getting file info for: %s", file_path)
         logger.info(file)
-        from app.utils import get_file_info
         return get_file_info(file_path)
 
     def preview_file(self, file: str):
         """Preview file content"""
         file_path = file
-        from app.preview import preview_file_inline
         preview_file_inline(file_path)
 
     def get_file_path(self, file: str) -> str:

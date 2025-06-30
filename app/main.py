@@ -1,3 +1,5 @@
+"""Main application entry point."""
+
 from app.ui import run_app
 
 if __name__ == "__main__":

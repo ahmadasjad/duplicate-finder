@@ -16,16 +16,16 @@ from .factory import StorageProviderFactory
 def get_storage_providers():
     """Get all available storage providers"""
     from app.config import STORAGE_PROVIDERS_CONFIG
-    
+
     enabled_providers = {}
-    
+
     # Use factory to create provider instances
     for name in StorageProviderFactory.get_available_providers().keys():
         if STORAGE_PROVIDERS_CONFIG.get(name, {}).get("enabled", False):
             provider = StorageProviderFactory.create_provider(name)
             if provider:
                 enabled_providers[name] = provider
-    
+
     return enabled_providers
 
 
@@ -37,7 +37,7 @@ def get_provider_info():
 
 __all__ = [
     'BaseStorageProvider',
-    'LocalFileSystemProvider', 
+    'LocalFileSystemProvider',
     'GoogleDriveProvider',
     'OneDriveProvider',
     'DropboxProvider',

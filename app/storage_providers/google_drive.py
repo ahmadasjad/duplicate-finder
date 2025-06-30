@@ -1,16 +1,24 @@
+"""Google Drive storage provider implementation."""
+
 import io
 import os
 import logging
+from typing import Dict, List
+import re
 import requests
 import streamlit as st
-from typing import Dict, List, Optional
-from .base import BaseStorageProvider
+from PIL import Image
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from .base import BaseStorageProvider, ScanFilterOptions
 from ..utils import human_readable_size, get_file_extension, format_iso_timestamp
 
 logger = logging.getLogger(__name__)
 
 
 class GoogleAuthenticator:
+    """Handles Google Drive OAuth2 authentication and user info retrieval."""
     def __init__(self):
         self.authenticated = False
         self.credentials = None
@@ -19,8 +27,6 @@ class GoogleAuthenticator:
 
     def _setup_credentials(self):
         """Setup Google Drive API credentials"""
-        import streamlit as st
-
         # Check if credentials are already stored in session state
         if 'gdrive_credentials' in st.session_state:
             self.credentials = st.session_state.gdrive_credentials
@@ -40,8 +46,6 @@ class GoogleAuthenticator:
 
     def _perform_oauth_flow(self):
         """Perform OAuth flow directly in the application"""
-        import streamlit as st
-
         st.markdown("### 🔐 Google Drive Authentication")
 
         # Generate auth URL
@@ -92,7 +96,6 @@ class GoogleAuthenticator:
     def _generate_auth_url(self):
         """Generate authentication URL for user to visit"""
         try:
-            from google_auth_oauthlib.flow import InstalledAppFlow
 
             SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
             credentials_file = 'credentials.json'
@@ -113,8 +116,6 @@ class GoogleAuthenticator:
     def _exchange_code_for_token(self, auth_code):
         """Exchange authorization code for access token"""
         try:
-            import streamlit as st
-            from google_auth_oauthlib.flow import InstalledAppFlow
 
             SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
             credentials_file = 'credentials.json'
@@ -128,7 +129,7 @@ class GoogleAuthenticator:
             creds = flow.credentials
 
             # Save token
-            with open('token.json', 'w') as token:
+            with open('token.json', 'w', encoding='utf-8') as token:
                 token.write(creds.to_json())
 
             # Update instance
@@ -220,12 +221,9 @@ The authorization code format is incorrect.
                     st.session_state.gdrive_auth_flow = False
                     st.rerun()
             return True
-        else:
-            if st.button("🔄 Refresh Authentication", type="primary"):
-                st.rerun()
-            return True
-        return False
-
+        if st.button("🔄 Refresh Authentication", type="primary"):
+            st.rerun()
+        return True
 
     def _get_user_info(self):
         """Get user information from Google Drive API"""
@@ -263,16 +261,6 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
 
     def authenticate(self) -> bool:
         """Check authentication status and return True if authenticated"""
-        import streamlit as st
-
-        # Check if required packages are installed
-        try:
-            from google.auth.transport.requests import Request
-            from google.oauth2.credentials import Credentials
-            from google_auth_oauthlib.flow import Flow
-            from googleapiclient.discovery import build
-        except ImportError:
-            return False  # Dependencies not available
 
         # If already authenticated, return True
         if self.authenticated and self.service:
@@ -325,20 +313,6 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
 
     def _check_dependencies(self):
         """Check for required Google Drive dependencies and credentials file."""
-        try:
-            from google.auth.transport.requests import Request
-            from google.oauth2.credentials import Credentials
-            from google_auth_oauthlib.flow import Flow
-            from googleapiclient.discovery import build
-        except ImportError:
-            st.error("📦 **Missing Dependencies**")
-            st.markdown("""
-            To use Google Drive integration, install the required packages:
-            ```bash
-            pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib
-            ```
-            """)
-            return False
         if not os.path.exists('credentials.json'):
             st.error("📋 **Setup Required**")
             st.markdown("""
@@ -401,7 +375,6 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         if manual_folder:
             # Extract folder ID from URL if necessary
             if "drive.google.com" in manual_folder:
-                import re
                 folder_id_match = re.search(r'/folders/([a-zA-Z0-9-_]+)', manual_folder)
                 if folder_id_match:
                     folder_id = folder_id_match.group(1)
@@ -427,15 +400,12 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
 
     def get_directory_input_widget(self):
         """Return widget for Google Drive folder selection"""
-        import streamlit as st
-
         if not self._check_dependencies():
             return None
         if not self.authenticated:
             if self._handle_authentication_flow():
                 return None
-            else:
-                return None
+            return None
         user_info = self._get_user_info()
         if user_info:
             st.success(f"✅ Connected to Google Drive as **{user_info['name']}** ({user_info['email']})")
@@ -489,7 +459,6 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
 
             return results.get('files', []), results.get('nextPageToken')
         except Exception as e:
-            import streamlit as st
             st.error(f"Error fetching files: {e}")
             return [], None
 
@@ -533,7 +502,6 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
                 all_files.extend(subfolder_files)
 
         except Exception as e:
-            import streamlit as st
             st.warning(f"Error scanning folder {folder_id}: {e}")
 
         return all_files
@@ -554,17 +522,17 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
                     break
         return all_files
 
-    def _apply_file_filters(self, file_info, exclude_hidden, min_size_kb, max_size_kb):
+    def _apply_file_filters(self, file_info, filters: ScanFilterOptions):
         """Apply filters to a file and return skip reason if any, else None"""
         file_name = file_info.get('name', '')
         file_size_bytes = int(file_info.get('size', 0))
         file_size_kb = file_size_bytes / 1024
-        if exclude_hidden and file_name.startswith('.'):
+        if filters.exclude_hidden and file_name.startswith('.'):
             return "hidden file"
-        if file_size_kb < min_size_kb:
-            return f"too small ({file_size_kb:.1f} KB < {min_size_kb} KB)"
-        if max_size_kb > 0 and file_size_kb > max_size_kb:
-            return f"too large ({file_size_kb:.1f} KB > {max_size_kb} KB)"
+        if file_size_kb < filters.min_size_kb:
+            return f"too small ({file_size_kb:.1f} KB < {filters.min_size_kb} KB)"
+        if filters.max_size_kb > 0 and file_size_kb > filters.max_size_kb:
+            return f"too large ({file_size_kb:.1f} KB > {filters.max_size_kb} KB)"
         return None
 
     def _process_file(self, file_info, file_dict, skipped_no_hash):
@@ -592,35 +560,32 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
 
     def _show_scan_summary(self, total_files, processed_files, skipped_no_hash, skipped_filters, duplicates, file_dict):
         """Log and display scan summary"""
-        logger.info(f"📊 **Scan Summary:**")
-        logger.info(f"- Total files found: {total_files}")
-        logger.info(f"- Files processed: {processed_files}")
-        logger.info(f"- Files skipped (no MD5): {skipped_no_hash}")
-        logger.info(f"- Files skipped (filters): {skipped_filters}")
-        logger.info(f"- Duplicate groups found: {len(duplicates)}")
+        logger.info("📊 **Scan Summary:**")
+        logger.info("- Total files found: %d", total_files)
+        logger.info("- Files processed: %d", processed_files)
+        logger.info("- Files skipped (no MD5): %d", skipped_no_hash)
+        logger.info("- Files skipped (filters): %d", skipped_filters)
+        logger.info("- Duplicate groups found: %d", len(duplicates))
         if processed_files > 0:
             logger.info("**All processed files with hashes:**")
             for hash_key, files in file_dict.items():
                 hash_display = hash_key[:16] + "..." if len(hash_key) > 16 else hash_key
-                logger.debug(f"**Hash {hash_display}:** {len(files)} file(s)")
+                logger.debug("**Hash %s:** %d file(s)", hash_display, len(files))
                 for file in files:
                     md5_display = file['md5_hash'][:8] + "..." if file['md5_hash'] != 'fallback' and len(file['md5_hash']) > 8 else file['md5_hash']
-                    logger.debug(f"  - {file['name']} ({file['size']} bytes, MD5: {md5_display})")
+                    logger.debug("  - %s (%d bytes, MD5: %s)", file['name'], file['size'], md5_display)
         if duplicates:
             for i, (hash_key, files) in enumerate(list(duplicates.items())[:3]):
-                logger.info(f"**Group {i+1}:** {len(files)} files")
+                logger.info("**Group %d:** %d files", i+1, len(files))
                 for file in files:
                     hash_type = "MD5" if file.get('has_md5') else "Name+Size"
-                    logger.debug(f"  - {file['name']} ({hash_type})")
-            if len(duplicates) > 3:
-                logger.info(f"... and {len(duplicates) - 3} more groups")
+                    logger.debug("  - %s (%s)", file['name'], hash_type)
 
-    def scan_directory(self, directory, exclude_shortcuts: bool = True,
-                      exclude_hidden: bool = True, exclude_system: bool = True,
-                      min_size_kb: int = 0, max_size_kb: int = 0) -> Dict[str, List[str]]:
+            if len(duplicates) > 3:
+                logger.info("... and %d more groups", len(duplicates) - 3)
+
+    def scan_directory(self, directory: str, filters) -> Dict[str, List[str]]:
         """Scan Google Drive directory for duplicates"""
-        import streamlit as st
-        import time
 
         if not self.authenticated or not self.service:
             st.error("Not authenticated with Google Drive")
@@ -682,7 +647,10 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
                     status_text.text(f"Processing file {i + 1}/{total_files}: {file_info['name']}")
 
                     # Apply filters
-                    skip_reason = self._apply_file_filters(file_info, exclude_hidden, min_size_kb, max_size_kb)
+                    skip_reason = self._apply_file_filters(
+                        file_info,
+                        filters
+                    )
                     if skip_reason:
                         skipped_filters += 1
                         continue
@@ -707,19 +675,19 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             self._show_scan_summary(total_files, processed_files, skipped_no_hash, skipped_filters, duplicates, file_dict)
 
             if duplicates:
-                duplicate_count = sum(len(group) for group in duplicates.values())
+                # duplicate_count = sum(len(group) for group in duplicates.values())  # Unused
                 # status_placeholder.success(f"✅ Scan complete! Found {len(duplicates)} groups containing {duplicate_count} duplicate files.")
                 status_placeholder.empty()  # Clear the status message after showing success
 
                 # Show some details about the duplicates found
                 for i, (hash_key, files) in enumerate(list(duplicates.items())[:3]):  # Show first 3 groups
-                    logger.info(f"**Group {i+1}:** {len(files)} files")
+                    logger.info("**Group %d:** %d files", i+1, len(files))
                     for file in files:
                         hash_type = "MD5" if file.get('has_md5') else "Name+Size"
-                        logger.debug(f"  - {file['name']} ({hash_type})")
+                        logger.debug("  - %s (%s)", file['name'], hash_type)
 
                 if len(duplicates) > 3:
-                    logger.info(f"... and {len(duplicates) - 3} more groups")
+                    logger.info("... and %d more groups", len(duplicates) - 3)
             else:
                 st.info("No duplicate files found in the selected folder.")
 
@@ -783,14 +751,14 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         if success_count == total_count:
             st.success(f"Successfully moved {success_count} files to trash")
             return True
-        elif success_count > 0:
+        if success_count > 0:
             st.warning(f"Moved {success_count}/{total_count} files to trash")
             return True
         return False
 
-    def get_scan_success_msg(self, duplicate_groups: int, duplicate_count: int) -> str:
+    def get_scan_success_msg(self, duplicate_groups: int, duplicate_files: int) -> str:
         """Return custom success message for Google Drive scan completion"""
-        return f"✅ Scan complete! Found {duplicate_groups} groups containing {duplicate_count} duplicate files."
+        return f"✅ Scan complete! Found {duplicate_groups} groups containing {duplicate_files} duplicate files."
 
     def _extract_time_info(self, file_info: dict) -> tuple[str, str]:
         """Extract and format creation and modification times from file info"""
@@ -826,19 +794,18 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         """Get Google Drive file info"""
         if isinstance(file, dict):
             return self._create_file_info_dict(file)
-        else:
-            # Fallback for string paths
-            return {
-                'name': 'Unknown',
-                'size': 0,
-                'size_formatted': human_readable_size(0),
-                'extension': '',
-                'path': file,
-                'mime_type': '',
-                'created': 'Unknown',
-                'modified': 'Unknown',
-                'source': 'Google Drive'
-            }
+        # Fallback for string paths
+        return {
+            'name': 'Unknown',
+            'size': 0,
+            'size_formatted': human_readable_size(0),
+            'extension': '',
+            'path': file,
+            'mime_type': '',
+            'created': 'Unknown',
+            'modified': 'Unknown',
+            'source': 'Google Drive'
+        }
 
     def preview_file(self, file: str):
         """Preview Google Drive file - only handles preview content, no layout"""
@@ -907,14 +874,12 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             # For Google Drive, use the full path if available
             if 'full_path' in file:
                 return file['full_path']
-            else:
-                # Fallback to constructing path from available info
-                folder_path = file.get('folder_path', 'Root')
-                file_name = file.get('name', 'Unknown')
-                return f"/{folder_path}/{file_name}" if folder_path != 'Root' else f"/Root/{file_name}"
-        else:
-            # Fallback for string paths
-            return str(file)
+            # Fallback to constructing path from available info
+            folder_path = file.get('folder_path', 'Root')
+            file_name = file.get('name', 'Unknown')
+            return f"/{folder_path}/{file_name}" if folder_path != 'Root' else f"/Root/{file_name}"
+        # Fallback for string paths
+        return str(file)
 
     def _preview_image(self, file_id: str, file_name: str) -> bool:
         """Handle image file preview with multiple fallback options"""
@@ -938,7 +903,6 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
     def _create_image_thumbnail(self, image_data: bytes, file_name: str) -> bool:
         """Create and display a square thumbnail from image data"""
         try:
-            from PIL import Image
             image = Image.open(io.BytesIO(image_data))
 
             # Create a square thumbnail
@@ -964,12 +928,6 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
 
             # Display
             st.image(thumbnail_buffer.getvalue(), width=250)
-            return True
-
-        except ImportError:
-            # Fallback if PIL not available
-            st.image(image_data, caption=f"Preview of {file_name}", width=250)
-            st.success("✅ Image loaded from Google Drive (install Pillow for better thumbnails)")
             return True
 
         except Exception as e:

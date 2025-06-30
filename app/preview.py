@@ -1,3 +1,5 @@
+"""Preview utilities for files."""
+
 import os
 from PIL import Image
 import pdfplumber

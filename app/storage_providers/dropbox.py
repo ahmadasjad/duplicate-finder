@@ -1,4 +1,7 @@
+"""Dropbox storage provider implementation."""
+
 from typing import Dict, List
+import streamlit as st
 from .base import BaseStorageProvider
 
 
@@ -11,26 +14,20 @@ class DropboxProvider(BaseStorageProvider):
 
     def authenticate(self) -> bool:
         """Authenticate with Dropbox API"""
-        import streamlit as st
         st.info("Dropbox integration coming soon!")
         # TODO: Implement Dropbox API authentication
         return False
 
     def get_directory_input_widget(self):
         """Return widget for Dropbox folder selection"""
-        import streamlit as st
         if not self.authenticated:
             if st.button("Authenticate with Dropbox"):
                 self.authenticate()
             return None
-        else:
-            return st.selectbox("Select Dropbox folder:", ["Root", "Apps", "Shared"])
+        return st.selectbox("Select Dropbox folder:", ["Root", "Apps", "Shared"])
 
-    def scan_directory(self, directory: str, exclude_shortcuts: bool = True,
-                      exclude_hidden: bool = True, exclude_system: bool = True,
-                      min_size_kb: int = 0, max_size_kb: int = 0) -> Dict[str, List[str]]:
+    def scan_directory(self, directory: str, filters) -> Dict[str, List[str]]:
         """Scan Dropbox directory (placeholder)"""
-        import streamlit as st
         st.warning("Dropbox scanning not yet implemented")
         return {}
 
@@ -44,7 +41,6 @@ class DropboxProvider(BaseStorageProvider):
 
     def preview_file(self, file: str):
         """Preview Dropbox file (placeholder)"""
-        import streamlit as st
         st.info("Dropbox file preview coming soon!")
 
     def get_file_path(self, file: str) -> str:

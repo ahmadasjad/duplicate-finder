@@ -1,8 +1,13 @@
+"""UI components and logic."""
+
 import streamlit as st
 from app.utils import human_readable_size
 from app.storage_providers import get_storage_providers, get_provider_info
+from app.storage_providers.base import ScanFilterOptions
 
 class DuplicateFinderUI:
+    """UI class for rendering and managing the Duplicate File Finder app."""
+
     def __init__(self):
         self.setup_page_config()
         self.init_session_state()
@@ -77,7 +82,7 @@ class DuplicateFinderUI:
         )
 
     def render_scan_options(self):
-        """Render the scan options UI."""
+        """Render the scan options UI and return a ScanFilterOptions object."""
         st.subheader("Scan Options")
         with st.expander("Advanced Filters", expanded=False):
             col1, col2 = st.columns(2)
@@ -89,13 +94,13 @@ class DuplicateFinderUI:
                 min_size = st.number_input("Minimum file size (KB)", min_value=0, value=0)
                 max_size = st.number_input("Maximum file size (KB)", min_value=0, value=0)
 
-        return {
-            "exclude_shortcuts": exclude_shortcuts,
-            "exclude_hidden": exclude_hidden,
-            "exclude_system": exclude_system,
-            "min_size": min_size,
-            "max_size": max_size
-        }
+        return ScanFilterOptions(
+            exclude_shortcuts=exclude_shortcuts,
+            exclude_hidden=exclude_hidden,
+            exclude_system=exclude_system,
+            min_size_kb=min_size,
+            max_size_kb=max_size
+        )
 
     def render_scan_statistics(self, duplicates):
         """Render the scan statistics in the sidebar."""
@@ -268,16 +273,12 @@ class DuplicateFinderUI:
             return
 
         scan_options = self.render_scan_options()
-
+        # scan_options is now a ScanFilterOptions object
         if st.button("Scan for Duplicates", type="primary"):
             with st.spinner("Scanning for duplicates..."):
                 st.session_state.duplicates = selected_provider.scan_directory(
                     directory,
-                    exclude_shortcuts=scan_options["exclude_shortcuts"],
-                    exclude_hidden=scan_options["exclude_hidden"],
-                    exclude_system=scan_options["exclude_system"],
-                    min_size_kb=scan_options["min_size"],
-                    max_size_kb=scan_options["max_size"]
+                    scan_options
                 )
 
             if st.session_state.duplicates:
