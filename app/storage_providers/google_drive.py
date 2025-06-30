@@ -546,7 +546,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         file_id = file_info.get('webViewLink', file_info.get('id', ''))
         if file_hash not in file_dict:
             file_dict[file_hash] = []
-        file_dict[file_hash].append({
+        file_data ={
             'path': file_id,
             'name': file_name,
             'size': file_size_bytes,
@@ -555,7 +555,9 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             'webViewLink': file_info.get('webViewLink', ''),
             'has_md5': bool(file_info.get('md5Checksum')),
             'md5_hash': file_info.get('md5Checksum', 'fallback')
-        })
+        }
+        file_data.update(file_info)
+        file_dict[file_hash].append(file_data)
         return skipped_no_hash
 
     def _show_scan_summary(self, total_files, processed_files, skipped_no_hash, skipped_filters, duplicates, file_dict):
