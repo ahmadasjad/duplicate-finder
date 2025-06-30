@@ -28,16 +28,16 @@ class LocalFileSystemProvider(BaseStorageProvider):
             # Show available mount points for Docker users
             st.info("🐳 **Docker Mode Detected**")
             st.markdown("**Available directories to scan:**")
-            st.markdown("- `/app/debug/` - Sample debug files")
-            st.markdown("- `/app/test_data/` - Test data directory")
+            st.markdown("- `/app/app/debug/` - Sample debug files")
+            st.markdown("- `/app/app/test_data/` - Test data directory")
             st.markdown("- `/host_home/` - Host home directory (read-only)")
             st.markdown("- `/host_test_data/` - Host test data directory (read-only)")
             st.markdown("- Or enter any other mounted path")
 
             # Provide default directory suggestions for Docker
             default_dirs = [
-                "/app/debug",
-                "/app/test_data",
+                "/app/app/debug",
+                "/app/app/test_data",
                 # "/host_home",
                 "/host_test_data"
             ]

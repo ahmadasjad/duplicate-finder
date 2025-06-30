@@ -1,10 +1,8 @@
 import streamlit as st
-from app.file_operations import scan_directory, delete_selected_files
-from app.utils import get_file_info, human_readable_size
-from app.preview import preview_file_inline
+from app.utils import human_readable_size
 from app.storage_providers import get_storage_providers, get_provider_info
 
-# Set page configuration to wide mode
+# Set page configuration
 st.set_page_config(
     page_title="Duplicate File Finder",
     page_icon="📂",
