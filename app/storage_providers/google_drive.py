@@ -325,14 +325,16 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         parent_id = 'root'  # Start from "My Drive"
         if folder_path == 'My Drive' or folder_path == 'root':
             self.folder_path_to_id[folder_path] = parent_id
+            self.folder_id_to_path[parent_id] = folder_path
             return parent_id
 
         if folder_path.startswith('My Drive'):
             folder_path = folder_path[9:] # Delete "My Drive/" prefix
         parts = folder_path.split('/')
 
-        full_path = parts[0] if parts else 'My Drive'
-        self.folder_path_to_id[full_path] = parent_id
+        current_path = parts[0] if parts else 'My Drive'
+        self.folder_path_to_id[current_path] = parent_id
+        self.folder_id_to_path[parent_id] = current_path
         for part in parts:
             query = f"'{parent_id}' in parents and name = '{part}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
             results = self.service.files().list(q=query, spaces='drive', fields="files(id, name)").execute()
@@ -340,8 +342,68 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             if not items:
                 raise FileNotFoundError(f"Folder '{part}' not found in path.")
             parent_id = items[0]['id']  # Go one level deeper
+            # Build up the current path as we go
+            # if current_path:
+            current_path = f"{current_path}/{part}"
+            # else:
+            #     current_path = part
+            self.folder_path_to_id[current_path] = parent_id
+            self.folder_id_to_path[parent_id] = current_path
 
         return parent_id
+
+    def get_folder_path_from_id(self, service, folder_id):
+        """Get folder path from Google Drive folder ID"""
+        try:
+            return self.folder_id_to_path[folder_id]
+        except KeyError:
+            pass
+
+        path_parts = []
+        ids_to_cache = []
+        current_id = folder_id
+        hit_cached_path_parts = []
+
+        while True:
+            try:
+                cached_path = self.folder_id_to_path[current_id]
+                hit_cached_path_parts = cached_path.split('/')
+                break
+            except KeyError:
+                pass
+
+            file = service.files().get(fileId=current_id, fields="id, name, parents").execute()
+            ids_to_cache.append((current_id, file['name']))
+            path_parts.append(file['name'])
+
+            try:
+                current_id = file['parents'][0]
+            except (KeyError, IndexError):
+                break  # Reached root
+
+        path_parts.reverse()
+
+        # Add the cached path if any
+        if hit_cached_path_parts:
+            path_parts = hit_cached_path_parts + path_parts
+
+        # Add "My Drive" if needed
+        if path_parts and path_parts[0] != 'My Drive':
+            path_parts.insert(0, 'My Drive')
+
+        full_path = '/'.join(path_parts)
+
+        # Cache all resolved folder IDs
+        for i, (fid, _) in enumerate(reversed(ids_to_cache)):
+            sub_path = '/'.join(path_parts[:len(path_parts) - i])
+            self.folder_id_to_path[fid] = sub_path
+
+        # Also cache the requested folder_id directly (redundant safety)
+        self.folder_id_to_path[folder_id] = full_path
+
+        return full_path
+
+
 
     def _check_dependencies(self):
         """Check for required Google Drive dependencies and credentials file."""
