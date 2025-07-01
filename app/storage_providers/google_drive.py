@@ -372,7 +372,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             except KeyError:
                 pass
 
-            file = service.files().get(fileId=current_id, fields="id, name, parents").execute()
+            file = service.files().get(fileId=current_id, fields='*').execute()
             ids_to_cache.append((current_id, file['name']))
             path_parts.append(file['name'])
 
@@ -972,6 +972,8 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
     def get_file_path(self, file: str) -> str:
         """Get formatted file path for Google Drive files"""
         if isinstance(file, dict):
+            folder_path = self.get_folder_path_from_id(self.service, file.get('parents')[0])
+            return f"/{folder_path}/{file.get('name', 'Unknown')}"
             # For Google Drive, use the full path if available
             if 'full_path' in file:
                 logger.debug("full_path: %s", file['full_path'])
