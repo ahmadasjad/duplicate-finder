@@ -181,13 +181,13 @@ The authorization code format is incorrect.
     def get_file_service(self):
         return self.service.files()
 
-    def get_files(self, parent_folder_id: str, *, per_page: int = 100, page_token=None) -> list[dict]:
-        return self.get_files_and_folders(parent_folder_id, per_page=per_page, page_token=page_token, query="not mimeType='application/vnd.google-apps.folder'")
+    async def get_files(self, parent_folder_id: str, *, per_page: int = 100, page_token=None) -> list[dict]:
+        return await self.get_files_and_folders(parent_folder_id, per_page=per_page, page_token=page_token, query="not mimeType='application/vnd.google-apps.folder'")
 
-    def get_folders(self, parent_folder_id: str, *, per_page: int = 100, page_token=None) -> list[dict]:
-        return self.get_files_and_folders(parent_folder_id, per_page=per_page, page_token=page_token, query="mimeType='application/vnd.google-apps.folder'")
+    async def get_folders(self, parent_folder_id: str, *, per_page: int = 100, page_token=None) -> list[dict]:
+        return await self.get_files_and_folders(parent_folder_id, per_page=per_page, page_token=page_token, query="mimeType='application/vnd.google-apps.folder'")
 
-    def get_files_and_folders(self, parent_folder_id: str, *, per_page: int = 100, page_token=None, query=None) -> list[dict]:
+    async def get_files_and_folders(self, parent_folder_id: str, *, per_page: int = 100, page_token=None, query=None) -> list[dict]:
         try:
             query_internal = f"'{parent_folder_id}' in parents and trashed=false"
 
@@ -221,7 +221,7 @@ The authorization code format is incorrect.
             st.error(f"Error fetching files: {e}")
             return [], None
 
-    def get_files_recursive(self, parent_folder_id: str, *, visited_folders=None):
+    async def get_files_recursive(self, parent_folder_id: str, *, visited_folders=None):
         """Recursively get files from Google Drive folder and all subfolders"""
         # folder_id = parent_folder_id
         logger.debug("Scanning folder_id: %s", parent_folder_id)
@@ -239,7 +239,7 @@ The authorization code format is incorrect.
             # Get files in current folder
             page_token = None
             while True:
-                files_and_folders, page_token = self.get_files_and_folders(parent_folder_id, page_token=page_token)
+                files_and_folders, page_token = await self.get_files_and_folders(parent_folder_id, page_token=page_token)
                 logger.debug("files_and_folders: %s", files_and_folders)
                 files = [f for f in files_and_folders if f.get('mimeType') != 'application/vnd.google-apps.folder']
                 subfolders = [f for f in files_and_folders if f.get('mimeType') == 'application/vnd.google-apps.folder']
@@ -254,7 +254,7 @@ The authorization code format is incorrect.
 
             # Get subfolders and recursively scan them
             for subfolder in all_subfolders:
-                subfolder_files = self.get_files_recursive(subfolder['id'], visited_folders=visited_folders.copy())
+                subfolder_files = await self.get_files_recursive(subfolder['id'], visited_folders=visited_folders.copy())
                 all_files.extend(subfolder_files)
 
         except Exception as e:

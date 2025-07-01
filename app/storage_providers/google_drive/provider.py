@@ -8,6 +8,7 @@ import re
 import requests
 import streamlit as st
 from PIL import Image
+import time
 
 from .google_utils import extract_file_id_and_name, get_enriched_file_info, CREDENTIALS_FILE
 from ..base import BaseStorageProvider, ScanFilterOptions
@@ -190,27 +191,27 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         else:
             st.success("✅ Connected to Google Drive")
         try:
-            # folders = self._get_folders()
-            folders, _ = self.google_service.get_folders(parent_folder_id='root', per_page=50)
+            import asyncio
+            folders, _ = asyncio.run(self.google_service.get_folders(parent_folder_id='root', per_page=50))
             folders = [{"name": f"My Drive/{folder['name']}", "id": folder['id']} for folder in folders]
             return self._handle_folder_selection(folders)
         except Exception as e:
             st.error(f"Error accessing Google Drive: {e}")
             return None
 
-    def _collect_files(self, folder_id, recursive, status_el):
+    async def _collect_files(self, folder_id, recursive, status_el):
         """Collect all files from the specified folder (recursively if needed)"""
         all_files = []
         if recursive:
             status_el.text("Discovering folders and files recursively...")
-            all_files = self.google_service.get_files_recursive(
+            all_files = await self.google_service.get_files_recursive(
                 parent_folder_id=folder_id,
             )
         else:
             status_el.text("Fetching file list from Google Drive...")
             page_token = None
             while True:
-                files, page_token = self.google_service.get_files(
+                files, page_token = await self.google_service.get_files(
                     parent_folder_id=folder_id,
                     page_token=page_token,
                 )
@@ -319,8 +320,12 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             skipped_filters = 0
 
             # Get all files from the specified folder and subfolders
-            all_files = self._collect_files(folder_id, recursive, status_el)
+            import asyncio
+            start_time = time.time()
+            all_files = asyncio.run(self._collect_files(folder_id, recursive, status_el))
             total_files = len(all_files)
+            elapsed_time = time.time() - start_time
+            logger.debug("Collected %d files in %.2f seconds", len(all_files), elapsed_time)
             status_el.text(f"Found {total_files} files. Analyzing for duplicates...")
 
             if total_files == 0:
