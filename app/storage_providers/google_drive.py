@@ -255,9 +255,12 @@ The authorization code format is incorrect.
 class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
     """Google Drive storage provider with OAuth2 authentication"""
 
+
     def __init__(self):
         BaseStorageProvider.__init__(self, "Google Drive")
         GoogleAuthenticator.__init__(self)
+        self.folder_id_to_path = {}  # Cache for folder ID to path mapping
+        self.folder_path_to_id = {}  # Cache for folder path to ID mapping
 
     def authenticate(self) -> bool:
         """Check authentication status and return True if authenticated"""
@@ -311,6 +314,35 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
 
         return False  # Not authenticated
 
+    def get_folder_id_from_path(self, folder_path: str):
+        folder_path = folder_path.strip().strip('/')
+
+        try:
+            return self.folder_path_to_id[folder_path]
+        except KeyError:
+            pass
+
+        parent_id = 'root'  # Start from "My Drive"
+        if folder_path == 'My Drive' or folder_path == 'root':
+            self.folder_path_to_id[folder_path] = parent_id
+            return parent_id
+
+        if folder_path.startswith('My Drive'):
+            folder_path = folder_path[9:] # Delete "My Drive/" prefix
+        parts = folder_path.split('/')
+
+        full_path = parts[0] if parts else 'My Drive'
+        self.folder_path_to_id[full_path] = parent_id
+        for part in parts:
+            query = f"'{parent_id}' in parents and name = '{part}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+            results = self.service.files().list(q=query, spaces='drive', fields="files(id, name)").execute()
+            items = results.get('files', [])
+            if not items:
+                raise FileNotFoundError(f"Folder '{part}' not found in path.")
+            parent_id = items[0]['id']  # Go one level deeper
+
+        return parent_id
+
     def _check_dependencies(self):
         """Check for required Google Drive dependencies and credentials file."""
         if not os.path.exists('credentials.json'):
@@ -332,32 +364,33 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
 
     def _handle_folder_selection(self, folders):
         """Handle folder selection UI and return folder info or None."""
-        folder_options = ["Root Folder"]
-        folder_map = {"Root Folder": "root"}
+        folder_options = [("root", "My Drive")]
         for folder in folders:
-            display_name = f"📁 {folder['name']}"
-            folder_options.append(display_name)
-            folder_map[display_name] = folder['id']
-        folder_options.append("🔧 Enter Folder ID/Path Manually")
+            display_name = f"{folder['name']}"
+            folder_options.append((folder['id'], display_name))
         if folder_options:
             selected_folder = st.selectbox(
                 "Select Google Drive folder to scan:",
                 folder_options,
-                help="Choose a folder to scan for duplicate files"
+                help="Choose a folder to scan for duplicate files",
+                accept_new_options=True,
+                format_func=lambda x: f"{x[1]}" if isinstance(x, tuple) else x
             )
-            if selected_folder == "🔧 Enter Folder ID/Path Manually":
-                return self._handle_manual_folder_entry()
+            logger.debug("Selected folder raw: %s", selected_folder)
+            if isinstance(selected_folder, tuple):
+                folder_id = selected_folder[0]
             else:
-                folder_id = folder_map.get(selected_folder, "root")
-                include_subfolders = st.checkbox(
-                    "🔄 Include subfolders (recursive scan)",
-                    value=True,
-                    help="Scan all subfolders within the selected folder"
-                )
-                return {
-                    'folder_id': folder_id,
-                    'recursive': include_subfolders
-                }
+                folder_id = self.get_folder_id_from_path(selected_folder)
+            include_subfolders = st.checkbox(
+                "🔄 Include subfolders (recursive scan)",
+                value=True,
+                help="Scan all subfolders within the selected folder"
+            )
+            logger.debug("Selected folder ID: %s, Include subfolders: %s", folder_id, include_subfolders)
+            return {
+                'folder_id': folder_id,
+                'recursive': include_subfolders
+            }
         else:
             st.info("No accessible folders found in Google Drive")
             return {
@@ -413,6 +446,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             st.success("✅ Connected to Google Drive")
         try:
             folders = self._get_folders()
+            folders = [{"name": f"My Drive/{folder['name']}", "id": folder['id']} for folder in folders]
             return self._handle_folder_selection(folders)
         except Exception as e:
             st.error(f"Error accessing Google Drive: {e}")
@@ -464,6 +498,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
 
     def _get_files_recursive(self, folder_id='root', visited_folders=None):
         """Recursively get files from Google Drive folder and all subfolders"""
+        logger.debug("Scanning folder_id: %s", folder_id)
         if visited_folders is None:
             visited_folders = set()
 
@@ -632,14 +667,14 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             # Show processing status
             status_placeholder.info(f"🔍 Processing {total_files} files from Google Drive...")
 
-            logger.info("**First few files found:**")
-            for i, file_info in enumerate(all_files[:5]):
-                file_name = file_info.get('name', 'Unknown')
-                file_size = int(file_info.get('size', 0))
-                has_md5 = bool(file_info.get('md5Checksum'))
-                md5_hash = file_info.get('md5Checksum', 'None')[:8] + "..." if file_info.get('md5Checksum') else 'None'
-                folder_path = file_info.get('folder_path', 'Unknown')
-                logger.debug(f"  %s. %s (%s bytes, MD5: %s, Has MD5: %s) - Path: %s", i+1,file_name, file_size, md5_hash, has_md5, folder_path)
+            # logger.info("**First few files found:**")
+            # for i, file_info in enumerate(all_files[:5]):
+            #     file_name = file_info.get('name', 'Unknown')
+            #     file_size = int(file_info.get('size', 0))
+            #     has_md5 = bool(file_info.get('md5Checksum'))
+            #     md5_hash = file_info.get('md5Checksum', 'None')[:8] + "..." if file_info.get('md5Checksum') else 'None'
+            #     folder_path = file_info.get('folder_path', 'Unknown')
+            #     logger.debug(f"  %s. %s (%s bytes, MD5: %s, Has MD5: %s) - Path: %s", i+1,file_name, file_size, md5_hash, has_md5, folder_path)
 
             for i, file_info in enumerate(all_files):
                 try:
@@ -764,6 +799,8 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
 
     def _extract_time_info(self, file_info: dict) -> tuple[str, str]:
         """Extract and format creation and modification times from file info"""
+        logger.debug("Extracting time info from file:")
+        logger.debug(file_info)
         created_time = file_info.get('createdTime', '')
         modified_time = file_info.get('modifiedTime', '')
 
@@ -875,11 +912,12 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         if isinstance(file, dict):
             # For Google Drive, use the full path if available
             if 'full_path' in file:
+                logger.debug("full_path: %s", file['full_path'])
                 return file['full_path']
             # Fallback to constructing path from available info
-            folder_path = file.get('folder_path', 'Root')
+            folder_path = file.get('folder_path', 'My Drive')
             file_name = file.get('name', 'Unknown')
-            return f"/{folder_path}/{file_name}" if folder_path != 'Root' else f"/Root/{file_name}"
+            return f"/{folder_path}/{file_name}" if folder_path != 'My Drive' else f"/My Drive/{file_name}"
         # Fallback for string paths
         return str(file)
 
