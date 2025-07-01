@@ -5,6 +5,7 @@ from datetime import datetime
 
 def human_readable_size(size_in_bytes, upto_unit=None):
     """Convert bytes to a human-readable format, optionally up to a specified unit (e.g., 'MB')."""
+    size_in_bytes = float(size_in_bytes)
     units = ['B', 'KB', 'MB', 'GB', 'TB']
     for unit in units:
         if upto_unit and unit == upto_unit:

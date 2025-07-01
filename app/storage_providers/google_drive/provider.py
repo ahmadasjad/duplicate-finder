@@ -8,9 +8,6 @@ import re
 import requests
 import streamlit as st
 from PIL import Image
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
 
 from .google_utils import extract_file_id_and_name, get_enriched_file_info, CREDENTIALS_FILE
 from ..base import BaseStorageProvider, ScanFilterOptions
@@ -31,55 +28,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         self.folder_path_to_id = {}  # Cache for folder path to ID mapping
 
     def authenticate(self) -> bool:
-        """Check authentication status and return True if authenticated"""
-
-        # If already authenticated, return True
-        if self.authenticated and self.service:
-            return True
-
-        # OAuth2 configuration
-        SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
-
-        # Check for credentials file
-        token_file = 'token.json'
-
-        if not os.path.exists(CREDENTIALS_FILE):
-            return False  # Setup required
-
-        creds = None
-
-        # Load existing token
-        if os.path.exists(token_file):
-            creds = Credentials.from_authorized_user_file(token_file, SCOPES)
-
-        # Check if credentials are valid
-        if creds and creds.valid:
-            # Save credentials and build service
-            self.credentials = creds
-            st.session_state.gdrive_credentials = creds
-
-            if self._build_service():
-                self.authenticated = True
-                return True
-
-        # Try to refresh expired credentials
-        if creds and creds.expired and creds.refresh_token:
-            try:
-                creds.refresh(Request())
-                self.credentials = creds
-                st.session_state.gdrive_credentials = creds
-
-                # Save refreshed token
-                with open(token_file, 'w') as token:
-                    token.write(creds.to_json())
-
-                if self._build_service():
-                    self.authenticated = True
-                    return True
-            except Exception:
-                pass
-
-        return False  # Not authenticated
+        return self.google_service.authenticate()
 
     def get_folder_id_from_path(self, folder_path: str):
         folder_path = folder_path.strip().strip('/')
@@ -104,7 +53,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         self.folder_id_to_path[parent_id] = current_path
         for part in parts:
             query = f"'{parent_id}' in parents and name = '{part}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
-            results = self.service.files().list(q=query, spaces='drive', fields="files(id, name)").execute()
+            results = self.google_service.get_file_service().list(q=query, spaces='drive', fields="files(id, name)").execute()
             items = results.get('files', [])
             if not items:
                 raise FileNotFoundError(f"Folder '{part}' not found in path.")
@@ -119,7 +68,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
 
         return parent_id
 
-    def get_folder_path_from_id(self, service, folder_id):
+    def get_folder_path_from_id(self, folder_id):
         """Get folder path from Google Drive folder ID"""
         try:
             return self.folder_id_to_path[folder_id]
@@ -139,7 +88,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             except KeyError:
                 pass
 
-            file = service.files().get(fileId=current_id, fields='*').execute()
+            file = self.google_service.get_file_service().get(fileId=current_id, fields='*').execute()
             ids_to_cache.append((current_id, file['name']))
             path_parts.append(file['name'])
 
@@ -170,11 +119,10 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
 
         return full_path
 
-
-
     def _check_dependencies(self):
         """Check for required Google Drive dependencies and credentials file."""
-        if not os.path.exists('credentials.json'):
+        # if not os.path.exists('credentials.json'):
+        if not os.path.exists(CREDENTIALS_FILE):
             st.error("📋 **Setup Required**")
             st.markdown("""
             **To enable Google Drive integration:**
@@ -227,44 +175,12 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
                 'recursive': True
             }
 
-    def _handle_manual_folder_entry(self):
-        """Handle manual folder ID or URL entry."""
-        manual_folder = st.text_input(
-            "Enter Google Drive Folder ID or URL:",
-            placeholder="e.g., 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms or https://drive.google.com/drive/folders/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms",
-            help="Enter the folder ID or paste the full Google Drive folder URL"
-        )
-        if manual_folder:
-            # Extract folder ID from URL if necessary
-            if "drive.google.com" in manual_folder:
-                folder_id_match = re.search(r'/folders/([a-zA-Z0-9-_]+)', manual_folder)
-                if folder_id_match:
-                    folder_id = folder_id_match.group(1)
-                    st.success(f"Extracted folder ID: {folder_id}")
-                else:
-                    st.error("Could not extract folder ID from URL")
-                    return None
-            else:
-                folder_id = manual_folder.strip()
-
-            # Add recursive option
-            include_subfolders = st.checkbox(
-                "🔄 Include subfolders (recursive scan)",
-                value=True,
-                help="Scan all subfolders within the selected folder"
-            )
-
-            return {
-                'folder_id': folder_id,
-                'recursive': include_subfolders
-            }
-        return None
-
     def get_directory_input_widget(self):
         """Return widget for Google Drive folder selection"""
         if not self._check_dependencies():
             return None
-        if not self.authenticated:
+        # if not self.authenticated:
+        if not self.google_service.is_user_authenticated():
             if self._handle_authentication_flow():
                 return None
             return None
@@ -274,113 +190,30 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         else:
             st.success("✅ Connected to Google Drive")
         try:
-            folders = self._get_folders()
+            # folders = self._get_folders()
+            folders, _ = self.google_service.get_folders(parent_folder_id='root', per_page=50)
             folders = [{"name": f"My Drive/{folder['name']}", "id": folder['id']} for folder in folders]
             return self._handle_folder_selection(folders)
         except Exception as e:
             st.error(f"Error accessing Google Drive: {e}")
             return None
 
-    def _get_folders(self, parent_id='root', limit=50):
-        """Get list of folders from Google Drive"""
-        try:
-            query = f"'{parent_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
-            results = self.service.files().list(
-                q=query,
-                pageSize=limit,
-                fields="files(id,name,parents)"
-            ).execute()
-            return results.get('files', [])
-        except Exception:
-            return []
-
-    def _get_files(self, folder_id='root', page_token=None):
-        """Get files from a Google Drive folder"""
-        try:
-            query = f"'{folder_id}' in parents and trashed=false"
-
-            # Exclude Google Workspace files (Docs, Sheets, Slides, etc.)
-            excluded_mimes = [
-                'application/vnd.google-apps.document',
-                'application/vnd.google-apps.spreadsheet',
-                'application/vnd.google-apps.presentation',
-                'application/vnd.google-apps.folder',
-                'application/vnd.google-apps.form',
-                'application/vnd.google-apps.drawing',
-                'application/vnd.google-apps.site'
-            ]
-
-            for mime in excluded_mimes:
-                query += f" and not mimeType='{mime}'"
-
-            results = self.service.files().list(
-                q=query,
-                pageSize=100,
-                pageToken=page_token,
-                fields="nextPageToken,files(id,name,size,mimeType,md5Checksum,parents,webViewLink,createdTime,modifiedTime)"
-            ).execute()
-
-            return results.get('files', []), results.get('nextPageToken')
-        except Exception as e:
-            st.error(f"Error fetching files: {e}")
-            return [], None
-
-    def _get_files_recursive(self, folder_id='root', visited_folders=None):
-        """Recursively get files from Google Drive folder and all subfolders"""
-        logger.debug("Scanning folder_id: %s", folder_id)
-        if visited_folders is None:
-            visited_folders = set()
-
-        # Prevent infinite loops
-        if folder_id in visited_folders:
-            return []
-
-        visited_folders.add(folder_id)
-        all_files = []
-
-        try:
-            # Get files in current folder
-            page_token = None
-            while True:
-                files, page_token = self._get_files(folder_id, page_token)
-                for file in files:
-                    # Add folder path information for debugging
-                    file['folder_id'] = folder_id
-                    if folder_id == 'root':
-                        file['folder_path'] = 'Root'
-                    else:
-                        try:
-                            folder_info = self.service.files().get(fileId=folder_id, fields="name").execute()
-                            file['folder_path'] = folder_info.get('name', 'Unknown')
-                        except:
-                            file['folder_path'] = folder_id[:8] + "..."
-
-                all_files.extend(files)
-                if not page_token:
-                    break
-
-            # Get subfolders and recursively scan them
-            subfolders = self._get_folders(folder_id)
-            for subfolder in subfolders:
-                subfolder_files = self._get_files_recursive(subfolder['id'], visited_folders.copy())
-                all_files.extend(subfolder_files)
-
-        except Exception as e:
-            st.warning(f"Error scanning folder {folder_id}: {e}")
-
-        return all_files
-
-    def _collect_files(self, folder_id, recursive, status_text):
+    def _collect_files(self, folder_id, recursive, status_el):
         """Collect all files from the specified folder (recursively if needed)"""
         all_files = []
         if recursive:
-            status_text.text("Discovering folders and files recursively...")
-            all_files = self._get_files_recursive(folder_id)
+            status_el.text("Discovering folders and files recursively...")
+            all_files = self.google_service.get_files_recursive(
+                parent_folder_id=folder_id,
+            )
         else:
-            status_text.text("Fetching file list from Google Drive...")
+            status_el.text("Fetching file list from Google Drive...")
             page_token = None
             while True:
-                files, page_token = self._get_files(folder_id, page_token)
+                files, page_token = self.google_service.get_files(
+                    parent_folder_id=folder_id,
+                    page_token=page_token,
+                )
                 all_files.extend(files)
                 if not page_token:
                     break
@@ -439,7 +272,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
                 logger.debug("**Hash %s:** %d file(s)", hash_display, len(files))
                 for file in files:
                     md5_display = file['md5_hash'][:8] + "..." if file['md5_hash'] != 'fallback' and len(file['md5_hash']) > 8 else file['md5_hash']
-                    logger.debug("  - %s (%d bytes, MD5: %s)", file['name'], file['size'], md5_display)
+                    logger.debug("  - %s (%s bytes, MD5: %s)", file['name'], file['size'], md5_display)
         if duplicates:
             for i, (hash_key, files) in enumerate(list(duplicates.items())[:3]):
                 logger.info("**Group %d:** %d files", i+1, len(files))
@@ -453,7 +286,8 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
     def scan_directory(self, directory: str, filters: ScanFilterOptions) -> Dict[str, List[str]]:
         """Scan Google Drive directory for duplicates"""
 
-        if not self.authenticated or not self.service:
+        # if not self.authenticated or not self.service:
+        if not self.google_service.is_user_authenticated():
             st.error("Not authenticated with Google Drive")
             return {}
 
@@ -476,7 +310,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
 
         # Progress tracking
         progress_bar = st.progress(0)
-        status_text = st.empty()
+        status_el = st.empty()
 
         try:
             file_dict = {}
@@ -485,9 +319,9 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             skipped_filters = 0
 
             # Get all files from the specified folder and subfolders
-            all_files = self._collect_files(folder_id, recursive, status_text)
+            all_files = self._collect_files(folder_id, recursive, status_el)
             total_files = len(all_files)
-            status_text.text(f"Found {total_files} files. Analyzing for duplicates...")
+            status_el.text(f"Found {total_files} files. Analyzing for duplicates...")
 
             if total_files == 0:
                 st.info("No files found in the selected folder")
@@ -510,7 +344,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
                     # Update progress
                     progress = (i + 1) / total_files
                     progress_bar.progress(progress)
-                    status_text.text(f"Processing file {i + 1}/{total_files}: {file_info['name']}")
+                    status_el.text(f"Processing file {i + 1}/{total_files}: {file_info['name']}")
 
                     # Apply filters
                     skip_reason = self._apply_file_filters(
@@ -534,15 +368,13 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
 
             # Clean up progress indicators
             progress_bar.empty()
-            status_text.empty()
+            status_el.empty()
             status_placeholder.empty()
 
             # Show scan summary
             self._show_scan_summary(total_files, processed_files, skipped_no_hash, skipped_filters, duplicates, file_dict)
 
             if duplicates:
-                # duplicate_count = sum(len(group) for group in duplicates.values())  # Unused
-                # status_placeholder.success(f"✅ Scan complete! Found {len(duplicates)} groups containing {duplicate_count} duplicate files.")
                 status_placeholder.empty()  # Clear the status message after showing success
 
                 # Show some details about the duplicates found
@@ -568,14 +400,15 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
 
         except Exception as e:
             progress_bar.empty()
-            status_text.empty()
+            status_el.empty()
             status_placeholder.empty()
             st.error(f"Error scanning Google Drive: {e}")
             return {}
 
     def delete_files(self, files: List[str]) -> bool:
         """Delete files from Google Drive"""
-        if not self.authenticated or not self.service:
+        # if not self.authenticated or not self.service:
+        if not self.google_service.is_user_authenticated():
             st.error("Not authenticated with Google Drive")
             return False
 
@@ -598,7 +431,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         """Delete/Trash a single file from Google Drive"""
         try:
             # Move file to trash instead of permanent deletion
-            self.service.files().update(
+            self.google_service.get_file_service().update(
                 fileId=file_id,
                 body={'trashed': True}
             ).execute()
@@ -623,9 +456,17 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         return f"✅ Scan complete! Found {duplicate_groups} groups containing {duplicate_files} duplicate files."
 
     def get_file_info(self, file: str) -> dict:
-        """Get Google Drive file info"""
+        """
+        Get Google Drive file info
+        base has type as str, but Google Drive files are dicts
+        so we need to handle both cases.
+        """
         if isinstance(file, dict):
             return get_enriched_file_info(file)
+
+        if isinstance(file, str):
+            raise ValueError("Expected file param as a dictionary, got string path instead.")
+
         # Fallback for string paths
         return {
             'name': 'Unknown',
@@ -703,16 +544,8 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
     def get_file_path(self, file: str) -> str:
         """Get formatted file path for Google Drive files"""
         if isinstance(file, dict):
-            folder_path = self.get_folder_path_from_id(self.service, file.get('parents')[0])
+            folder_path = self.get_folder_path_from_id(file.get('parents')[0])
             return f"/{folder_path}/{file.get('name', 'Unknown')}"
-            # For Google Drive, use the full path if available
-            if 'full_path' in file:
-                logger.debug("full_path: %s", file['full_path'])
-                return file['full_path']
-            # Fallback to constructing path from available info
-            folder_path = file.get('folder_path', 'My Drive')
-            file_name = file.get('name', 'Unknown')
-            return f"/{folder_path}/{file_name}" if folder_path != 'My Drive' else f"/My Drive/{file_name}"
         # Fallback for string paths
         return str(file)
 
@@ -774,7 +607,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
     def _handle_image_download(self, file_id: str, file_name: str) -> bool:
         """Download and display image from Google Drive"""
         try:
-            file_content = self.service.files().get_media(fileId=file_id).execute()
+            file_content = self.google_service.get_file_service().get_media(fileId=file_id).execute()
             return self._create_image_thumbnail(file_content, file_name)
         except Exception:
             return False

@@ -1,8 +1,7 @@
 import os
 import logging
 import streamlit as st
-from google_auth_oauthlib.flow import InstalledAppFlow
-from .google_utils import GoogleService, CREDENTIALS_FILE
+from .google_utils import GoogleService
 
 logger = logging.getLogger(__name__)
 
@@ -10,36 +9,18 @@ logger = logging.getLogger(__name__)
 class GoogleAuthenticator:
     """Handles Google Drive OAuth2 authentication and user info retrieval."""
     def __init__(self):
-        self.authenticated = False
-        self.credentials = None
-        self.service = None
-        self._setup_credentials()
-
-    def _setup_credentials(self):
-        """Setup Google Drive API credentials"""
-        # Check if credentials are already stored in session state
-        if 'gdrive_credentials' in st.session_state:
-            self.credentials = st.session_state.gdrive_credentials
-            self.authenticated = True
-            self._build_service()
-
-    def _build_service(self):
-        """Build Google Drive API service"""
-        try:
-            from googleapiclient.discovery import build
-            if self.credentials:
-                self.service = build('drive', 'v3', credentials=self.credentials)
-                return True
-        except ImportError:
-            return False
-        return False
+        self.google_service = GoogleService()
+        # self.authenticated = False
+        # self.credentials = None
+        # self.service = None
 
     def _perform_oauth_flow(self):
         """Perform OAuth flow directly in the application"""
         st.markdown("### 🔐 Google Drive Authentication")
 
         # Generate auth URL
-        auth_url, error = self._generate_auth_url()
+        # auth_url, error = self._generate_auth_url()
+        auth_url, error = self.google_service._generate_auth_url()
         if error:
             st.error(f"Failed to generate authentication URL: {error}")
             return False
@@ -70,7 +51,7 @@ class GoogleAuthenticator:
 
             if auth_code and st.button("✅ Complete Authentication", type="primary"):
                 with st.spinner("Completing authentication..."):
-                    success, error = self._exchange_code_for_token(auth_code.strip())
+                    success, error = self.google_service._exchange_code_for_token(auth_code.strip())
 
                     if success:
                         st.success("🎉 Authentication successful!")
@@ -82,92 +63,6 @@ class GoogleAuthenticator:
                     return False
 
         return False
-
-    def _generate_auth_url(self):
-        """Generate authentication URL for user to visit"""
-        try:
-
-            SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
-
-            if not os.path.exists(CREDENTIALS_FILE):
-                return None, "credentials.json file not found"
-
-            # Create flow
-            flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
-            flow.redirect_uri = 'urn:ietf:wg:oauth:2.0:oob'  # For manual copy-paste flow
-
-            auth_url, _ = flow.authorization_url(prompt='consent')
-            return auth_url, None
-
-        except Exception as e:
-            return None, str(e)
-
-    def _exchange_code_for_token(self, auth_code):
-        """Exchange authorization code for access token"""
-        try:
-
-            SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
-
-            # Create flow
-            flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
-            flow.redirect_uri = 'urn:ietf:wg:oauth:2.0:oob'
-
-            # Exchange code for token
-            flow.fetch_token(code=auth_code)
-            creds = flow.credentials
-
-            # Save token
-            with open('token.json', 'w', encoding='utf-8') as token:
-                token.write(creds.to_json())
-
-            # Update instance
-            self.credentials = creds
-            st.session_state.gdrive_credentials = creds
-
-            if self._build_service():
-                self.authenticated = True
-                return True, None
-            return False, "Failed to build Google Drive service"
-
-        except Exception as e:
-            error_message = str(e)
-
-            # Handle common OAuth errors with helpful messages
-            if "access_denied" in error_message:
-                return False, """
-🚫 **Access Denied - OAuth Consent Screen Issue**
-
-This error usually means your app is in testing mode and you need to add your email as a test user:
-
-**Fix Steps:**
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Select your project 'duplicate-file-finder-464317'
-3. Go to APIs & Services → OAuth consent screen
-4. Scroll to "Test users" section
-5. Click "+ ADD USERS"
-6. Add your email address
-7. Click Save and try again
-
-**Alternative:** You can also publish your OAuth consent screen to make it available to all users.
-"""
-            if "invalid_grant" in error_message:
-                return False, """
-⏰ **Invalid Grant - Code Expired**
-
-The authorization code has expired or was already used.
-
-**Fix:** Click the authorization link again to get a new code.
-"""
-            if "invalid_request" in error_message:
-                return False, """
-📝 **Invalid Request - Code Format Issue**
-
-The authorization code format is incorrect.
-
-**Fix:** Make sure you copied the complete authorization code from Google.
-"""
-
-            return False, f"Authentication error: {error_message}"
 
     def _handle_authentication_flow(self):
         """Handle authentication UI and logic."""
@@ -217,7 +112,7 @@ The authorization code format is incorrect.
         """Get user information from Google Drive API"""
         try:
             # Get user info from the Drive API
-            about = self.service.about().get(fields="user").execute()
+            about = self.google_service.service.about().get(fields="user").execute()
             user = about.get('user', {})
 
             return {
@@ -229,7 +124,7 @@ The authorization code format is incorrect.
             # Fallback: try to get info from OAuth2 userinfo API
             try:
                 from googleapiclient.discovery import build
-                userinfo_service = build('oauth2', 'v2', credentials=self.credentials)
+                userinfo_service = build('oauth2', 'v2', credentials=self.google_service.credentials)
                 user_info = userinfo_service.userinfo().get().execute()
 
                 return {
