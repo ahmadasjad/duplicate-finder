@@ -11,8 +11,8 @@ from PIL import Image
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
-from .base import BaseStorageProvider, ScanFilterOptions
-from ..utils import human_readable_size, get_file_extension, format_iso_timestamp
+from ..base import BaseStorageProvider, ScanFilterOptions
+from ...utils import human_readable_size, get_file_extension, format_iso_timestamp
 
 logger = logging.getLogger(__name__)
 
