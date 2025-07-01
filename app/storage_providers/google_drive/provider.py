@@ -326,11 +326,12 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             total_files = len(all_files)
             elapsed_time = time.time() - start_time
             logger.debug("Collected %d files in %.2f seconds", len(all_files), elapsed_time)
-            status_el.text(f"Found {total_files} files. Analyzing for duplicates...")
 
             if total_files == 0:
                 st.info("No files found in the selected folder")
                 return {}
+
+            status_el.text(f"Found {total_files} files. Analyzing for duplicates...")
 
             # Show processing status
             status_placeholder.info(f"🔍 Processing {total_files} files from Google Drive...")
@@ -382,24 +383,24 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             if duplicates:
                 status_placeholder.empty()  # Clear the status message after showing success
 
-                # Show some details about the duplicates found
-                for i, (hash_key, files) in enumerate(list(duplicates.items())[:3]):  # Show first 3 groups
-                    logger.info("**Group %d:** %d files", i+1, len(files))
-                    for file in files:
-                        hash_type = "MD5" if file.get('has_md5') else "Name+Size"
-                        logger.debug("  - %s (%s)", file['name'], hash_type)
+                # # Show some details about the duplicates found
+                # for i, (hash_key, files) in enumerate(list(duplicates.items())[:3]):  # Show first 3 groups
+                #     logger.info("**Group %d:** %d files", i+1, len(files))
+                #     for file in files:
+                #         hash_type = "MD5" if file.get('has_md5') else "Name+Size"
+                #         logger.debug("  - %s (%s)", file['name'], hash_type)
 
-                if len(duplicates) > 3:
-                    logger.info("... and %d more groups", len(duplicates) - 3)
+                # if len(duplicates) > 3:
+                #     logger.info("... and %d more groups", len(duplicates) - 3)
             else:
                 st.info("No duplicate files found in the selected folder.")
 
-                # Suggest checking subfolders if only one file found
-                if total_files == 1:
-                    status_placeholder.warning("⚠️ **Only 1 file found!** Possible reasons:")
-                    st.write("- Duplicate files might be in subfolders (this scan only checks the selected folder)")
-                    st.write("- Files might have been filtered out")
-                    st.write("- Try scanning the 'Root Folder' to include all accessible files")
+                # # Suggest checking subfolders if only one file found
+                # if total_files == 1:
+                #     status_placeholder.warning("⚠️ **Only 1 file found!** Possible reasons:")
+                #     st.write("- Duplicate files might be in subfolders (this scan only checks the selected folder)")
+                #     st.write("- Files might have been filtered out")
+                #     st.write("- Try scanning the 'Root Folder' to include all accessible files")
 
             return duplicates
 
