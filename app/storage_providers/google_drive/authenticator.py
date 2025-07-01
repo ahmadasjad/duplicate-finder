@@ -2,6 +2,7 @@ import os
 import logging
 import streamlit as st
 from google_auth_oauthlib.flow import InstalledAppFlow
+from .google_utils import GoogleService, CREDENTIALS_FILE
 
 logger = logging.getLogger(__name__)
 
@@ -87,13 +88,12 @@ class GoogleAuthenticator:
         try:
 
             SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
-            credentials_file = 'credentials.json'
 
-            if not os.path.exists(credentials_file):
+            if not os.path.exists(CREDENTIALS_FILE):
                 return None, "credentials.json file not found"
 
             # Create flow
-            flow = InstalledAppFlow.from_client_secrets_file(credentials_file, SCOPES)
+            flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
             flow.redirect_uri = 'urn:ietf:wg:oauth:2.0:oob'  # For manual copy-paste flow
 
             auth_url, _ = flow.authorization_url(prompt='consent')
@@ -107,10 +107,9 @@ class GoogleAuthenticator:
         try:
 
             SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
-            credentials_file = 'credentials.json'
 
             # Create flow
-            flow = InstalledAppFlow.from_client_secrets_file(credentials_file, SCOPES)
+            flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
             flow.redirect_uri = 'urn:ietf:wg:oauth:2.0:oob'
 
             # Exchange code for token

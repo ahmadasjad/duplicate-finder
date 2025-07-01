@@ -11,8 +11,10 @@ from PIL import Image
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
+
+from .google_utils import extract_file_id_and_name, get_enriched_file_info, CREDENTIALS_FILE
 from ..base import BaseStorageProvider, ScanFilterOptions
-from ...utils import human_readable_size, get_file_extension, format_iso_timestamp
+from ...utils import human_readable_size
 from .authenticator import GoogleAuthenticator
 
 logger = logging.getLogger(__name__)
@@ -39,10 +41,9 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
 
         # Check for credentials file
-        credentials_file = 'credentials.json'
         token_file = 'token.json'
 
-        if not os.path.exists(credentials_file):
+        if not os.path.exists(CREDENTIALS_FILE):
             return False  # Setup required
 
         creds = None
@@ -583,7 +584,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             total_count = len(files)
 
             for file_path in files:
-                file_id, file_name = self._extract_file_id_and_name(file_path)
+                file_id, file_name = extract_file_id_and_name(file_path)
                 if file_id and self._delete_single_file(file_id, file_name):
                     success_count += 1
 
@@ -592,10 +593,6 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         except Exception as e:
             st.error(f"Error during file deletion: {e}")
             return False
-
-    def _extract_file_id_and_name(self, file: dict) -> tuple[str, str]:
-        """Extract file ID and name from Google Drive file dictionary"""
-        return file.get('id'), file.get('name', 'Unknown')
 
     def _delete_single_file(self, file_id: str, file_name: str) -> bool:
         """Delete/Trash a single file from Google Drive"""
@@ -625,42 +622,10 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         """Return custom success message for Google Drive scan completion"""
         return f"✅ Scan complete! Found {duplicate_groups} groups containing {duplicate_files} duplicate files."
 
-    def _extract_time_info(self, file_info: dict) -> tuple[str, str]:
-        """Extract and format creation and modification times from file info"""
-        logger.debug("Extracting time info from file:")
-        logger.debug(file_info)
-        created_time = file_info.get('createdTime', '')
-        modified_time = file_info.get('modifiedTime', '')
-
-        created_formatted = format_iso_timestamp(created_time) if created_time else 'Unknown'
-        modified_formatted = format_iso_timestamp(modified_time) if modified_time else 'Unknown'
-
-        return created_formatted, modified_formatted
-
-    def _create_file_info_dict(self, file_info: dict) -> dict:
-        """Create a standardized file info dictionary from Google Drive file info"""
-        # Extract timestamps
-        created_formatted, modified_formatted = self._extract_time_info(file_info)
-
-        # Get file size
-        size_bytes = int(file_info.get('size', 0))
-
-        return {
-            'name': file_info.get('name', 'Unknown'),
-            'size': size_bytes,
-            'size_formatted': human_readable_size(size_bytes),
-            'extension': get_file_extension(file_info.get('name', '')),
-            'path': file_info.get('webViewLink', file_info.get('id', '')),
-            'mime_type': file_info.get('mimeType', ''),
-            'created': created_formatted,
-            'modified': modified_formatted,
-            'source': 'Google Drive'
-        }
-
     def get_file_info(self, file: str) -> dict:
         """Get Google Drive file info"""
         if isinstance(file, dict):
-            return self._create_file_info_dict(file)
+            return get_enriched_file_info(file)
         # Fallback for string paths
         return {
             'name': 'Unknown',
