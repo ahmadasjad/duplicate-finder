@@ -1,26 +1,32 @@
-import os
+"""Google Drive authentication handler for OAuth2 flow.
+
+This module handles the authentication process with Google Drive API,
+including token generation, refresh, and validation.
+"""
+
 import logging
+import os
+from abc import ABC
+
 import streamlit as st
+from googleapiclient.discovery import build
+
 from .google_utils import GoogleService
 
 logger = logging.getLogger(__name__)
 
 
-class GoogleAuthenticator:
+class GoogleAuthenticator(ABC):
     """Handles Google Drive OAuth2 authentication and user info retrieval."""
     def __init__(self):
         self.google_service = GoogleService()
-        # self.authenticated = False
-        # self.credentials = None
-        # self.service = None
 
     def _perform_oauth_flow(self):
         """Perform OAuth flow directly in the application"""
         st.markdown("### 🔐 Google Drive Authentication")
 
         # Generate auth URL
-        # auth_url, error = self._generate_auth_url()
-        auth_url, error = self.google_service._generate_auth_url()
+        auth_url, error = self.google_service.generate_auth_url()
         if error:
             st.error(f"Failed to generate authentication URL: {error}")
             return False
@@ -51,7 +57,7 @@ class GoogleAuthenticator:
 
             if auth_code and st.button("✅ Complete Authentication", type="primary"):
                 with st.spinner("Completing authentication..."):
-                    success, error = self.google_service._exchange_code_for_token(auth_code.strip())
+                    success, error = self.google_service.exchange_code_for_token(auth_code.strip())
 
                     if success:
                         st.success("🎉 Authentication successful!")
@@ -123,7 +129,6 @@ class GoogleAuthenticator:
         except Exception:
             # Fallback: try to get info from OAuth2 userinfo API
             try:
-                from googleapiclient.discovery import build
                 userinfo_service = build('oauth2', 'v2', credentials=self.google_service.credentials)
                 user_info = userinfo_service.userinfo().get().execute()
 

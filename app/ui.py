@@ -1,11 +1,13 @@
 """UI components and logic."""
 
+import logging
+
 import streamlit as st
+
 from app.utils import human_readable_size
 from app.storage_providers import get_storage_providers, get_provider_info
 from app.storage_providers.base import ScanFilterOptions
 from app.storage_providers.exceptions import NoDuplicateException, NoFileFoundException
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +134,7 @@ class DuplicateFinderUI:
                 savings_percentage = (duplicate_files / total_files) * 100
                 st.metric("Potential Savings", f"{savings_percentage:.1f}%")
 
-    def render_file_group(self, group_idx, files, storage_provider, total_groups):
+    def render_file_group(self, group_idx, files, storage_provider):
         """Render a single group of duplicate files."""
         group_id = group_idx + 1
         selected_files = []
@@ -326,7 +328,7 @@ class DuplicateFinderUI:
         end_idx = min(start_idx + st.session_state.per_page, total_groups)
 
         for group_idx in range(start_idx, end_idx):
-            selected = self.render_file_group(group_idx, groups[group_idx], storage_provider, total_groups)
+            selected = self.render_file_group(group_idx, groups[group_idx], storage_provider)
             selected_files.extend(selected)
             st.markdown("<br>", unsafe_allow_html=True)
 

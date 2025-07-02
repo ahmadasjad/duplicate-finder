@@ -4,6 +4,8 @@ import os
 import hashlib
 import logging
 from typing import Dict, List
+import streamlit as st
+
 from app.file_operations import is_file_shortcut, is_file_hidden, is_file_for_system
 from app.utils import get_file_info
 from app.preview import preview_file_inline
@@ -24,7 +26,6 @@ class LocalFileSystemProvider(BaseStorageProvider):
 
     def get_directory_input_widget(self) -> Dict:
         """Return text input for local directory path"""
-        import streamlit as st  # Kept inside to avoid unnecessary dependency if not used
 
         # Detect if running in Docker container
         is_docker = self._is_running_in_docker()
@@ -72,7 +73,10 @@ class LocalFileSystemProvider(BaseStorageProvider):
 
         if default_index >= len(default_dirs):
             default_index = 0
-        directory = st.selectbox("Enter directory path:", options=default_dirs, accept_new_options=True, index=default_index)
+        directory = st.selectbox(
+            "Enter directory path:", options=default_dirs,
+            accept_new_options=True, index=default_index
+            )
         directory = {'path': directory, }
         return directory
 

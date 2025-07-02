@@ -1,16 +1,18 @@
 import os
-import streamlit as st
+import logging
 
+import streamlit as st
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
-import logging
+
 from app.utils import format_iso_timestamp, human_readable_size, get_file_extension
 
 logger = logging.getLogger(__name__)
 
 # credentials_file
 CREDENTIALS_FILE = 'credentials.json'
+SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
 
 class GoogleService():
     def __init__(self):
@@ -40,12 +42,9 @@ class GoogleService():
             return False
         return False
 
-    def _generate_auth_url(self):
+    def generate_auth_url(self):
         """Generate authentication URL for user to visit"""
         try:
-
-            SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
-
             if not os.path.exists(CREDENTIALS_FILE):
                 return None, "credentials.json file not found"
 
@@ -59,12 +58,9 @@ class GoogleService():
         except Exception as e:
             return None, str(e)
 
-    def _exchange_code_for_token(self, auth_code):
+    def exchange_code_for_token(self, auth_code):
         """Exchange authorization code for access token"""
         try:
-
-            SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
-
             # Create flow
             flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
             flow.redirect_uri = 'urn:ietf:wg:oauth:2.0:oob'
@@ -133,9 +129,6 @@ The authorization code format is incorrect.
         if self.authenticated and self.service:
             return True
 
-        # OAuth2 configuration
-        SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
-
         # Check for credentials file
         token_file = 'token.json'
 
@@ -184,10 +177,16 @@ The authorization code format is incorrect.
         return self.service.files()
 
     async def get_files(self, parent_folder_id: str, *, per_page: int = 100, page_token=None) -> tuple:
-        return await self.get_files_and_folders(parent_folder_id, per_page=per_page, page_token=page_token, query="not mimeType='application/vnd.google-apps.folder'")
+        return await self.get_files_and_folders(
+            parent_folder_id, per_page=per_page, page_token=page_token,
+            query="not mimeType='application/vnd.google-apps.folder'"
+        )
 
     async def get_folders(self, parent_folder_id: str, *, per_page: int = 100, page_token=None) -> tuple:
-        return await self.get_files_and_folders(parent_folder_id, per_page=per_page, page_token=page_token, query="mimeType='application/vnd.google-apps.folder'")
+        return await self.get_files_and_folders(
+            parent_folder_id, per_page=per_page, page_token=page_token,
+            query="mimeType='application/vnd.google-apps.folder'"
+        )
 
     async def get_files_and_folders(self, parent_folder_id: str, *, per_page: int = 100, page_token=None, query=None) -> tuple:
         try:
@@ -277,7 +276,7 @@ The authorization code format is incorrect.
             file = self.service.files().get(fileId=file_id, fields='*').execute()
             return get_enriched_file_info(file)
         except Exception as e:
-            logger.error(f"Failed to retrieve file info: {e}")
+            logger.error("Failed to retrieve file info: %s", e)
             return {}
 
     def get_folder_info(self, folder_id: str) -> dict:
@@ -294,7 +293,7 @@ The authorization code format is incorrect.
             pass
 
         parent_id = 'root'  # Start from "My Drive"
-        if folder_path == 'My Drive' or folder_path == 'root':
+        if folder_path in ('My Drive', 'root'):
             self.folder_path_to_id[folder_path] = parent_id
             self.folder_id_to_path[parent_id] = folder_path
             return parent_id

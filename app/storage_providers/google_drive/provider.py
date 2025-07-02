@@ -3,9 +3,10 @@
 import os
 import logging
 from typing import Dict, List
+import time
+
 import requests
 import streamlit as st
-import time
 
 from .google_utils import extract_file_id_and_name, get_enriched_file_info, CREDENTIALS_FILE
 from ..base import BaseStorageProvider, ScanFilterOptions
@@ -16,18 +17,7 @@ from .authenticator import GoogleAuthenticator
 logger = logging.getLogger(__name__)
 
 
-def log_findings(duplicates, file_dict):
-    """Log the findings of the scan"""
-    # logger.info("**First few files found:**")
-    # for i, file_info in enumerate(all_files[:5]):
-    #     file_name = file_info.get('name', 'Unknown')
-    #     file_size = int(file_info.get('size', 0))
-    #     has_md5 = bool(file_info.get('md5Checksum'))
-    #     md5_hash = file_info.get('md5Checksum', 'None')[:8] + "..." if file_info.get('md5Checksum') else 'None'
-    #     folder_path = file_info.get('folder_path', 'Unknown')
-    #     logger.debug(f"  %s. %s (%s bytes, MD5: %s, Has MD5: %s) - Path: %s", i+1,file_name, file_size, md5_hash, has_md5, folder_path)
-
-def log_scan_summary(total_files, processed_files, skipped_no_hash, skipped_filters, duplicates, file_dict):
+def log_scan_summary(*,total_files, processed_files, skipped_no_hash, skipped_filters, duplicates, file_dict):
     """Log and display scan summary"""
     logger.info("📊 **Scan Summary:**")
     logger.info("- Total files found: %d", total_files)
@@ -116,11 +106,11 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             return {
                 'folder_id': folder_id,
             }
-        else:
-            st.info("No accessible folders found in Google Drive")
-            return {
-                'folder_id': "root",
-            }
+
+        st.info("No accessible folders found in Google Drive")
+        return {
+            'folder_id': "root",
+        }
 
     def get_directory_input_widget(self):
         """Return widget for Google Drive folder selection"""
@@ -142,7 +132,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             folders = [{"name": f"My Drive/{folder['name']}", "id": folder['id']} for folder in folders]
             return self._handle_folder_selection(folders)
         except Exception as e:
-            st.error(f"Error accessing Google Drive")
+            st.error("Error accessing Google Drive")
             logger.exception(e)
             return None
 
@@ -180,7 +170,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             return f"too large ({file_size_kb:.1f} KB > {filters.max_size_kb} KB)"
         return None
 
-    def _process_file(self, file_info, file_dict, skipped_no_hash):
+    def group_by_hash(self, file_info, file_dict, skipped_no_hash):
         """Process a single file: calculate hash, group, and update counters"""
         file_name = file_info.get('name', '')
         file_size_bytes = int(file_info.get('size', 0))
@@ -188,26 +178,21 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         if not file_hash:
             file_hash = f"fallback_{file_name}_{file_size_bytes}"
             skipped_no_hash += 1
-        file_id = file_info.get('webViewLink', file_info.get('id', ''))
+
         if file_hash not in file_dict:
             file_dict[file_hash] = []
         file_data ={
-            'path': file_id,
-            'name': file_name,
-            'size': file_size_bytes,
-            'id': file_info.get('id', ''),
-            'mimeType': file_info.get('mimeType', ''),
-            'webViewLink': file_info.get('webViewLink', ''),
+            'url': file_info.get('webViewLink', ''),
             'has_md5': bool(file_info.get('md5Checksum')),
-            'md5_hash': file_info.get('md5Checksum', 'fallback')
+            'md5_hash': file_info.get('md5Checksum', file_hash)
         }
         file_data.update(file_info)
         file_dict[file_hash].append(file_data)
+
         return skipped_no_hash
 
     def find_duplicates(self, all_files: list[dict], filters: ScanFilterOptions, progress_bar) -> Dict:
         file_dict = {}
-        processed_files = 0
         skipped_no_hash = 0
         skipped_filters = 0
         total_files = len(all_files)
@@ -228,8 +213,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
                     skipped_filters += 1
                     continue
 
-                skipped_no_hash = self._process_file(file_info, file_dict, skipped_no_hash)
-                processed_files += 1
+                skipped_no_hash = self.group_by_hash(file_info, file_dict, skipped_no_hash)
 
             except Exception as e:
                 # Skip files that cause errors
@@ -293,7 +277,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         except (NoDuplicateException, NoFileFoundException) as e:
             raise e # forward the exception
         except Exception as e:
-            st.error(f"Error scanning Google Drive")
+            st.error("Error scanning Google Drive")
             logger.exception(e)
             return {}
         finally:
@@ -319,14 +303,14 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             return self._process_deletion_results(success_count, total_count)
 
         except Exception as e:
-            st.error(f"Error during file deletion")
+            st.error("Error during file deletion")
             logger.exception(e)
             return False
 
     def _delete_single_file(self, file_id: str, file_name: str) -> bool:
         """Delete/Trash a single file from Google Drive"""
         try:
-            # Move file to trash instead of permanent deletion
+            # Move the file to trash instead of permanent deletion
             self.google_service.get_file_service().update(
                 fileId=file_id,
                 body={'trashed': True}
@@ -349,7 +333,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         return False
 
     def get_scan_success_msg(self, duplicate_groups: int, duplicate_files: int) -> str:
-        """Return custom success message for Google Drive scan completion"""
+        """Return a custom success message for Google Drive scan completion"""
         return f"✅ Scan complete! Found {duplicate_groups} groups containing {duplicate_files} duplicate files."
 
     def get_file_info(self, file: str) -> dict:
@@ -443,7 +427,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         except Exception as e:
             # Fallback to basic display if thumbnail creation fails
             st.image(image_data, caption=f"Preview of {file_name}", width=250)
-            logger.warning(f"⚠️ Could not create thumbnail: {e}")
+            logger.warning("⚠️ Could not create thumbnail: %s", e)
             return True
 
     def _handle_image_download(self, file_id: str, file_name: str) -> bool:
@@ -460,7 +444,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             st.info("🔄 Trying thumbnail preview...")
             thumbnail_url = f"https://drive.google.com/thumbnail?id={file_id}&sz=w250"
 
-            response = requests.head(thumbnail_url)
+            response = requests.head(thumbnail_url, timeout=10)
             if response.status_code == 200:
                 st.image(thumbnail_url, caption=f"Preview of {file_name}", width=250)
                 st.caption("📌 Thumbnail preview")
