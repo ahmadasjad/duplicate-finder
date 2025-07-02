@@ -13,6 +13,7 @@ class ScanFilterOptions:
     exclude_system: bool = True
     min_size_kb: int = 0
     max_size_kb: int = 0
+    include_subfolders: bool = True
 
 
 class BaseStorageProvider(ABC):
@@ -30,7 +31,7 @@ class BaseStorageProvider(ABC):
         """Return the appropriate Streamlit widget for directory input"""
 
     @abstractmethod
-    def scan_directory(self, directory: str, filters: ScanFilterOptions) -> Dict[str, List[str]]:
+    def scan_directory(self, directory: dict, filters: ScanFilterOptions) -> Dict[str, List[str]]:
         """Scan directory and return duplicate file groups
 
         Args:

@@ -1,128 +1,81 @@
 """Google Drive storage provider implementation."""
 
-import io
 import os
 import logging
 from typing import Dict, List
-import re
 import requests
 import streamlit as st
-from PIL import Image
 import time
 
 from .google_utils import extract_file_id_and_name, get_enriched_file_info, CREDENTIALS_FILE
 from ..base import BaseStorageProvider, ScanFilterOptions
-from ...utils import human_readable_size
+from ..exceptions import NoDuplicateException, NoFileFoundException
+from ...utils import get_thumbnail_from_image_data
 from .authenticator import GoogleAuthenticator
 
 logger = logging.getLogger(__name__)
 
 
+def log_findings(duplicates, file_dict):
+    """Log the findings of the scan"""
+    # logger.info("**First few files found:**")
+    # for i, file_info in enumerate(all_files[:5]):
+    #     file_name = file_info.get('name', 'Unknown')
+    #     file_size = int(file_info.get('size', 0))
+    #     has_md5 = bool(file_info.get('md5Checksum'))
+    #     md5_hash = file_info.get('md5Checksum', 'None')[:8] + "..." if file_info.get('md5Checksum') else 'None'
+    #     folder_path = file_info.get('folder_path', 'Unknown')
+    #     logger.debug(f"  %s. %s (%s bytes, MD5: %s, Has MD5: %s) - Path: %s", i+1,file_name, file_size, md5_hash, has_md5, folder_path)
+
+def log_scan_summary(total_files, processed_files, skipped_no_hash, skipped_filters, duplicates, file_dict):
+    """Log and display scan summary"""
+    logger.info("📊 **Scan Summary:**")
+    logger.info("- Total files found: %d", total_files)
+    logger.info("- Files processed: %d", processed_files)
+    logger.info("- Files skipped (no MD5): %d", skipped_no_hash)
+    logger.info("- Files skipped (filters): %d", skipped_filters)
+    logger.info("- Duplicate groups found: %d", len(duplicates))
+    if processed_files > 0:
+        logger.info("**All processed files with hashes:**")
+        for hash_key, files in file_dict.items():
+            hash_display = hash_key[:16] + "..." if len(hash_key) > 16 else hash_key
+            logger.debug("**Hash %s:** %d file(s)", hash_display, len(files))
+            for file in files:
+                md5_display = file['md5_hash'][:8] + "..." if file['md5_hash'] != 'fallback' and len(file['md5_hash']) > 8 else file['md5_hash']
+                logger.debug("  - %s (%s bytes, MD5: %s)", file['name'], file['size'], md5_display)
+    if duplicates:
+        for i, (hash_key, files) in enumerate(list(duplicates.items())[:3]):
+            logger.info("**Group %d:** %d files", i+1, len(files))
+            for file in files:
+                hash_type = "MD5" if file.get('has_md5') else "Name+Size"
+                logger.debug("  - %s (%s)", file['name'], hash_type)
+
+        if len(duplicates) > 3:
+            logger.info("... and %d more groups", len(duplicates) - 3)
+
+        # # Show some details about the duplicates found
+        # for i, (hash_key, files) in enumerate(list(duplicates.items())[:3]):  # Show first 3 groups
+        #     logger.info("**Group %d:** %d files", i+1, len(files))
+        #     for file in files:
+        #         hash_type = "MD5" if file.get('has_md5') else "Name+Size"
+        #         logger.debug("  - %s (%s)", file['name'], hash_type)
+
+        # if len(duplicates) > 3:
+        #     logger.info("... and %d more groups", len(duplicates) - 3)
+
+
 class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
     """Google Drive storage provider with OAuth2 authentication"""
-
 
     def __init__(self):
         BaseStorageProvider.__init__(self, "Google Drive")
         GoogleAuthenticator.__init__(self)
-        self.folder_id_to_path = {}  # Cache for folder ID to path mapping
-        self.folder_path_to_id = {}  # Cache for folder path to ID mapping
 
     def authenticate(self) -> bool:
         return self.google_service.authenticate()
 
-    def get_folder_id_from_path(self, folder_path: str):
-        folder_path = folder_path.strip().strip('/')
-
-        try:
-            return self.folder_path_to_id[folder_path]
-        except KeyError:
-            pass
-
-        parent_id = 'root'  # Start from "My Drive"
-        if folder_path == 'My Drive' or folder_path == 'root':
-            self.folder_path_to_id[folder_path] = parent_id
-            self.folder_id_to_path[parent_id] = folder_path
-            return parent_id
-
-        if folder_path.startswith('My Drive'):
-            folder_path = folder_path[9:] # Delete "My Drive/" prefix
-        parts = folder_path.split('/')
-
-        current_path = parts[0] if parts else 'My Drive'
-        self.folder_path_to_id[current_path] = parent_id
-        self.folder_id_to_path[parent_id] = current_path
-        for part in parts:
-            query = f"'{parent_id}' in parents and name = '{part}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
-            results = self.google_service.get_file_service().list(q=query, spaces='drive', fields="files(id, name)").execute()
-            items = results.get('files', [])
-            if not items:
-                raise FileNotFoundError(f"Folder '{part}' not found in path.")
-            parent_id = items[0]['id']  # Go one level deeper
-            # Build up the current path as we go
-            # if current_path:
-            current_path = f"{current_path}/{part}"
-            # else:
-            #     current_path = part
-            self.folder_path_to_id[current_path] = parent_id
-            self.folder_id_to_path[parent_id] = current_path
-
-        return parent_id
-
-    def get_folder_path_from_id(self, folder_id):
-        """Get folder path from Google Drive folder ID"""
-        try:
-            return self.folder_id_to_path[folder_id]
-        except KeyError:
-            pass
-
-        path_parts = []
-        ids_to_cache = []
-        current_id = folder_id
-        hit_cached_path_parts = []
-
-        while True:
-            try:
-                cached_path = self.folder_id_to_path[current_id]
-                hit_cached_path_parts = cached_path.split('/')
-                break
-            except KeyError:
-                pass
-
-            file = self.google_service.get_file_service().get(fileId=current_id, fields='*').execute()
-            ids_to_cache.append((current_id, file['name']))
-            path_parts.append(file['name'])
-
-            try:
-                current_id = file['parents'][0]
-            except (KeyError, IndexError):
-                break  # Reached root
-
-        path_parts.reverse()
-
-        # Add the cached path if any
-        if hit_cached_path_parts:
-            path_parts = hit_cached_path_parts + path_parts
-
-        # Add "My Drive" if needed
-        if path_parts and path_parts[0] != 'My Drive':
-            path_parts.insert(0, 'My Drive')
-
-        full_path = '/'.join(path_parts)
-
-        # Cache all resolved folder IDs
-        for i, (fid, _) in enumerate(reversed(ids_to_cache)):
-            sub_path = '/'.join(path_parts[:len(path_parts) - i])
-            self.folder_id_to_path[fid] = sub_path
-
-        # Also cache the requested folder_id directly (redundant safety)
-        self.folder_id_to_path[folder_id] = full_path
-
-        return full_path
-
     def _check_dependencies(self):
         """Check for required Google Drive dependencies and credentials file."""
-        # if not os.path.exists('credentials.json'):
         if not os.path.exists(CREDENTIALS_FILE):
             st.error("📋 **Setup Required**")
             st.markdown("""
@@ -158,29 +111,22 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             if isinstance(selected_folder, tuple):
                 folder_id = selected_folder[0]
             else:
-                folder_id = self.get_folder_id_from_path(selected_folder)
-            include_subfolders = st.checkbox(
-                "🔄 Include subfolders (recursive scan)",
-                value=True,
-                help="Scan all subfolders within the selected folder"
-            )
-            logger.debug("Selected folder ID: %s, Include subfolders: %s", folder_id, include_subfolders)
+                folder_id = self.google_service.get_folder_id_from_path(selected_folder)
+            logger.debug("Selected folder ID: %s", folder_id)
             return {
                 'folder_id': folder_id,
-                'recursive': include_subfolders
             }
         else:
             st.info("No accessible folders found in Google Drive")
             return {
                 'folder_id': "root",
-                'recursive': True
             }
 
     def get_directory_input_widget(self):
         """Return widget for Google Drive folder selection"""
         if not self._check_dependencies():
             return None
-        # if not self.authenticated:
+
         if not self.google_service.is_user_authenticated():
             if self._handle_authentication_flow():
                 return None
@@ -196,7 +142,8 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             folders = [{"name": f"My Drive/{folder['name']}", "id": folder['id']} for folder in folders]
             return self._handle_folder_selection(folders)
         except Exception as e:
-            st.error(f"Error accessing Google Drive: {e}")
+            st.error(f"Error accessing Google Drive")
+            logger.exception(e)
             return None
 
     async def _collect_files(self, folder_id, recursive, status_el):
@@ -258,162 +205,104 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         file_dict[file_hash].append(file_data)
         return skipped_no_hash
 
-    def _show_scan_summary(self, total_files, processed_files, skipped_no_hash, skipped_filters, duplicates, file_dict):
-        """Log and display scan summary"""
-        logger.info("📊 **Scan Summary:**")
-        logger.info("- Total files found: %d", total_files)
-        logger.info("- Files processed: %d", processed_files)
-        logger.info("- Files skipped (no MD5): %d", skipped_no_hash)
-        logger.info("- Files skipped (filters): %d", skipped_filters)
-        logger.info("- Duplicate groups found: %d", len(duplicates))
-        if processed_files > 0:
-            logger.info("**All processed files with hashes:**")
-            for hash_key, files in file_dict.items():
-                hash_display = hash_key[:16] + "..." if len(hash_key) > 16 else hash_key
-                logger.debug("**Hash %s:** %d file(s)", hash_display, len(files))
-                for file in files:
-                    md5_display = file['md5_hash'][:8] + "..." if file['md5_hash'] != 'fallback' and len(file['md5_hash']) > 8 else file['md5_hash']
-                    logger.debug("  - %s (%s bytes, MD5: %s)", file['name'], file['size'], md5_display)
-        if duplicates:
-            for i, (hash_key, files) in enumerate(list(duplicates.items())[:3]):
-                logger.info("**Group %d:** %d files", i+1, len(files))
-                for file in files:
-                    hash_type = "MD5" if file.get('has_md5') else "Name+Size"
-                    logger.debug("  - %s (%s)", file['name'], hash_type)
+    def find_duplicates(self, all_files: list[dict], filters: ScanFilterOptions, progress_bar) -> Dict:
+        file_dict = {}
+        processed_files = 0
+        skipped_no_hash = 0
+        skipped_filters = 0
+        total_files = len(all_files)
 
-            if len(duplicates) > 3:
-                logger.info("... and %d more groups", len(duplicates) - 3)
+        for i, file_info in enumerate(all_files):
+            try:
+                # Update progress
+                if i%5 == 0:  # Update progress at every 5 files
+                    progress = (i + 1) / total_files
+                    progress_bar.progress(progress)
+
+                # Apply filters
+                skip_reason = self._apply_file_filters(
+                    file_info,
+                    filters
+                )
+                if skip_reason:
+                    skipped_filters += 1
+                    continue
+
+                skipped_no_hash = self._process_file(file_info, file_dict, skipped_no_hash)
+                processed_files += 1
+
+            except Exception as e:
+                # Skip files that cause errors
+                st.write(f"Error processing {file_info.get('name', 'unknown')}: {e}")
+                continue
+
+        # Filter to only return groups with duplicates
+        duplicates = {k: v for k, v in file_dict.items() if len(v) > 1}
+        return duplicates
 
     def scan_directory(self, directory: str, filters: ScanFilterOptions) -> Dict[str, List[str]]:
         """Scan Google Drive directory for duplicates"""
 
-        # if not self.authenticated or not self.service:
         if not self.google_service.is_user_authenticated():
             st.error("Not authenticated with Google Drive")
             return {}
 
         # Handle both old string format and new dict format
+        recursive = filters.include_subfolders
         if isinstance(directory, dict):
             folder_id = directory.get('folder_id', 'root')
-            recursive = directory.get('recursive', False)
+            # recursive = directory.get('recursive', False)
         else:
             folder_id = directory
-            recursive = False
+            # recursive = False
 
         # Create a placeholder for status messages that will be reused
         status_placeholder = st.empty()
+        progress_bar = st.progress(0)
+        status_el = st.empty()
 
         # Initial status message
         status_placeholder.info("🔍 Scanning Google Drive for duplicates...")
 
-        if recursive:
-            status_placeholder.info("🔄 Recursive mode: Scanning all subfolders...")
-
-        # Progress tracking
-        progress_bar = st.progress(0)
-        status_el = st.empty()
-
         try:
-            file_dict = {}
-            processed_files = 0
-            skipped_no_hash = 0
-            skipped_filters = 0
-
             # Get all files from the specified folder and subfolders
             import asyncio
             start_time = time.time()
             all_files = asyncio.run(self._collect_files(folder_id, recursive, status_el))
             total_files = len(all_files)
             elapsed_time = time.time() - start_time
-            logger.debug("Collected %d files in %.2f seconds", len(all_files), elapsed_time)
+            logger.debug("Collected %d files in %.2f seconds", total_files, elapsed_time)
 
             if total_files == 0:
-                st.info("No files found in the selected folder")
-                return {}
+                raise NoFileFoundException("No files found in the selected folder")
 
-            status_el.text(f"Found {total_files} files. Analyzing for duplicates...")
+            status_el.empty()  # Clear the initial status message
 
             # Show processing status
-            status_placeholder.info(f"🔍 Processing {total_files} files from Google Drive...")
+            status_placeholder.info(f"Found {total_files} files. Analyzing for duplicates...")
 
-            # logger.info("**First few files found:**")
-            # for i, file_info in enumerate(all_files[:5]):
-            #     file_name = file_info.get('name', 'Unknown')
-            #     file_size = int(file_info.get('size', 0))
-            #     has_md5 = bool(file_info.get('md5Checksum'))
-            #     md5_hash = file_info.get('md5Checksum', 'None')[:8] + "..." if file_info.get('md5Checksum') else 'None'
-            #     folder_path = file_info.get('folder_path', 'Unknown')
-            #     logger.debug(f"  %s. %s (%s bytes, MD5: %s, Has MD5: %s) - Path: %s", i+1,file_name, file_size, md5_hash, has_md5, folder_path)
+            duplicates = self.find_duplicates(all_files, filters, progress_bar)
 
-            for i, file_info in enumerate(all_files):
-                try:
-                    # Update progress
-                    progress = (i + 1) / total_files
-                    progress_bar.progress(progress)
-                    status_el.text(f"Processing file {i + 1}/{total_files}: {file_info['name']}")
+            # # Show scan summary
+            # log_scan_summary(total_files, processed_files, skipped_no_hash, skipped_filters, duplicates, file_dict)
 
-                    # Apply filters
-                    skip_reason = self._apply_file_filters(
-                        file_info,
-                        filters
-                    )
-                    if skip_reason:
-                        skipped_filters += 1
-                        continue
-
-                    skipped_no_hash = self._process_file(file_info, file_dict, skipped_no_hash)
-                    processed_files += 1
-
-                except Exception as e:
-                    # Skip files that cause errors
-                    st.write(f"Error processing {file_info.get('name', 'unknown')}: {e}")
-                    continue
-
-            # Filter to only return groups with duplicates
-            duplicates = {k: v for k, v in file_dict.items() if len(v) > 1}
-
-            # Clean up progress indicators
-            progress_bar.empty()
-            status_el.empty()
-            status_placeholder.empty()
-
-            # Show scan summary
-            self._show_scan_summary(total_files, processed_files, skipped_no_hash, skipped_filters, duplicates, file_dict)
-
-            if duplicates:
-                status_placeholder.empty()  # Clear the status message after showing success
-
-                # # Show some details about the duplicates found
-                # for i, (hash_key, files) in enumerate(list(duplicates.items())[:3]):  # Show first 3 groups
-                #     logger.info("**Group %d:** %d files", i+1, len(files))
-                #     for file in files:
-                #         hash_type = "MD5" if file.get('has_md5') else "Name+Size"
-                #         logger.debug("  - %s (%s)", file['name'], hash_type)
-
-                # if len(duplicates) > 3:
-                #     logger.info("... and %d more groups", len(duplicates) - 3)
-            else:
-                st.info("No duplicate files found in the selected folder.")
-
-                # # Suggest checking subfolders if only one file found
-                # if total_files == 1:
-                #     status_placeholder.warning("⚠️ **Only 1 file found!** Possible reasons:")
-                #     st.write("- Duplicate files might be in subfolders (this scan only checks the selected folder)")
-                #     st.write("- Files might have been filtered out")
-                #     st.write("- Try scanning the 'Root Folder' to include all accessible files")
+            if not duplicates:
+                raise NoDuplicateException("No duplicate files found in the selected folder.")
 
             return duplicates
-
+        except (NoDuplicateException, NoFileFoundException) as e:
+            raise e # forward the exception
         except Exception as e:
-            progress_bar.empty()
-            status_el.empty()
-            status_placeholder.empty()
-            st.error(f"Error scanning Google Drive: {e}")
+            st.error(f"Error scanning Google Drive")
+            logger.exception(e)
             return {}
+        finally:
+            status_placeholder.empty()
+            status_el.empty()
+            progress_bar.empty()
 
-    def delete_files(self, files: List[str]) -> bool:
+    def delete_files(self, files: List[dict]) -> bool:
         """Delete files from Google Drive"""
-        # if not self.authenticated or not self.service:
         if not self.google_service.is_user_authenticated():
             st.error("Not authenticated with Google Drive")
             return False
@@ -430,7 +319,8 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             return self._process_deletion_results(success_count, total_count)
 
         except Exception as e:
-            st.error(f"Error during file deletion: {e}")
+            st.error(f"Error during file deletion")
+            logger.exception(e)
             return False
 
     def _delete_single_file(self, file_id: str, file_name: str) -> bool:
@@ -444,7 +334,8 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             st.success(f"✅ Moved '{file_name}' to trash")
             return True
         except Exception as e:
-            st.error(f"❌ Failed to delete '{file_name}': {e}")
+            st.error(f"❌ Failed to delete '{file_name}'")
+            logger.exception(e)
             return False
 
     def _process_deletion_results(self, success_count: int, total_count: int) -> bool:
@@ -470,21 +361,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         if isinstance(file, dict):
             return get_enriched_file_info(file)
 
-        if isinstance(file, str):
-            raise ValueError("Expected file param as a dictionary, got string path instead.")
-
-        # Fallback for string paths
-        return {
-            'name': 'Unknown',
-            'size': 0,
-            'size_formatted': human_readable_size(0),
-            'extension': '',
-            'path': file,
-            'mime_type': '',
-            'created': 'Unknown',
-            'modified': 'Unknown',
-            'source': 'Google Drive'
-        }
+        raise ValueError("Expected file param as a dictionary, got string path instead.")
 
     def preview_file(self, file: str):
         """Preview Google Drive file - only handles preview content, no layout"""
@@ -548,66 +425,25 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         return {'links': []}
 
     def get_file_path(self, file: str) -> str:
-        """Get formatted file path for Google Drive files"""
+        """Get the formatted file path for Google Drive files"""
         if isinstance(file, dict):
-            folder_path = self.get_folder_path_from_id(file.get('parents')[0])
+            folder_path = self.google_service.get_folder_path_from_id(file.get('parents')[0])
             return f"/{folder_path}/{file.get('name', 'Unknown')}"
+
         # Fallback for string paths
         return str(file)
-
-    def _preview_image(self, file_id: str, file_name: str) -> bool:
-        """Handle image file preview with multiple fallback options"""
-        if not file_id:
-            st.info("📋 Click the links above to view this image in Google Drive")
-            return False
-
-        # Try direct download first
-        preview_success = self._handle_image_download(file_id, file_name)
-
-        # If direct download failed, try thumbnail
-        if not preview_success:
-            preview_success = self._try_thumbnail_preview(file_id, file_name)
-
-        # If both methods failed, show fallback options
-        if not preview_success:
-            self._show_image_fallback_options()
-
-        return preview_success
 
     def _create_image_thumbnail(self, image_data: bytes, file_name: str) -> bool:
         """Create and display a square thumbnail from image data"""
         try:
-            image = Image.open(io.BytesIO(image_data))
-
-            # Create a square thumbnail
-            thumbnail_size = (250, 250)
-            width, height = image.size
-
-            # Crop to square if needed
-            if width != height:
-                min_dimension = min(width, height)
-                left = (width - min_dimension) // 2
-                top = (height - min_dimension) // 2
-                right = left + min_dimension
-                bottom = top + min_dimension
-                image = image.crop((left, top, right, bottom))
-
-            # Create thumbnail
-            image.thumbnail(thumbnail_size, Image.Resampling.LANCZOS)
-
-            # Save thumbnail
-            thumbnail_buffer = io.BytesIO()
-            format_type = image.format if image.format else 'PNG'
-            image.save(thumbnail_buffer, format=format_type)
-
-            # Display
-            st.image(thumbnail_buffer.getvalue(), width=250)
+            thumbnail = get_thumbnail_from_image_data(image_data)
+            st.image(thumbnail, width=250)
             return True
 
         except Exception as e:
             # Fallback to basic display if thumbnail creation fails
             st.image(image_data, caption=f"Preview of {file_name}", width=250)
-            st.warning(f"⚠️ Could not create thumbnail: {e}")
+            logger.warning(f"⚠️ Could not create thumbnail: {e}")
             return True
 
     def _handle_image_download(self, file_id: str, file_name: str) -> bool:
@@ -645,3 +481,22 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         if file_id:
             pdf_embed_url = f"https://drive.google.com/file/d/{file_id}/preview"
             st.markdown(f"**📖 [View PDF]({pdf_embed_url})**")
+
+    def _preview_image(self, file_id: str, file_name: str) -> bool:
+        """Handle image file preview with multiple fallback options"""
+        if not file_id:
+            st.info("📋 Click the links above to view this image in Google Drive")
+            return False
+
+        # Try direct download first
+        preview_success = self._handle_image_download(file_id, file_name)
+
+        # If direct download failed, try thumbnail
+        if not preview_success:
+            preview_success = self._try_thumbnail_preview(file_id, file_name)
+
+        # If both methods failed, show fallback options
+        if not preview_success:
+            self._show_image_fallback_options()
+
+        return preview_success

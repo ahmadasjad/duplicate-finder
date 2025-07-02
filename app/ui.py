@@ -4,6 +4,11 @@ import streamlit as st
 from app.utils import human_readable_size
 from app.storage_providers import get_storage_providers, get_provider_info
 from app.storage_providers.base import ScanFilterOptions
+from app.storage_providers.exceptions import NoDuplicateException, NoFileFoundException
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class DuplicateFinderUI:
     """UI class for rendering and managing the Duplicate File Finder app."""
@@ -87,6 +92,11 @@ class DuplicateFinderUI:
         with st.expander("Advanced Filters", expanded=False):
             col1, col2 = st.columns(2)
             with col1:
+                include_subfolders = st.checkbox(
+                    "🔄 Include subfolders (recursive scan)",
+                    value=True,
+                    help="Scan all subfolders within the selected folder"
+                )
                 exclude_shortcuts = st.checkbox("Exclude shortcuts and symlinks", value=True)
                 exclude_hidden = st.checkbox("Exclude hidden files", value=True)
             with col2:
@@ -99,7 +109,8 @@ class DuplicateFinderUI:
             exclude_hidden=exclude_hidden,
             exclude_system=exclude_system,
             min_size_kb=min_size,
-            max_size_kb=max_size
+            max_size_kb=max_size,
+            include_subfolders=include_subfolders
         )
 
     def render_scan_statistics(self, duplicates):
@@ -275,20 +286,23 @@ class DuplicateFinderUI:
         scan_options = self.render_scan_options()
         # scan_options is now a ScanFilterOptions object
         if st.button("Scan for Duplicates", type="primary"):
-            with st.spinner("Scanning for duplicates..."):
-                st.session_state.duplicates = selected_provider.scan_directory(
-                    directory,
-                    scan_options
-                )
+            try:
+                with st.spinner("Scanning for duplicates..."):
+                    st.session_state.duplicates = selected_provider.scan_directory(
+                        directory,
+                        scan_options
+                    )
 
-            if st.session_state.duplicates:
-                total_duplicates = sum(len(group) for group in st.session_state.duplicates.values())
-                st.success(selected_provider.get_scan_success_msg(
-                    len(st.session_state.duplicates),
-                    total_duplicates
-                ))
-            else:
-                st.info("No duplicate files found.")
+                if st.session_state.duplicates:
+                    total_duplicates = sum(len(group) for group in st.session_state.duplicates.values())
+                    st.success(selected_provider.get_scan_success_msg(
+                        len(st.session_state.duplicates),
+                        total_duplicates
+                    ))
+            except (NoDuplicateException, NoFileFoundException) as e:
+                st.info(str(e))
+
+        st.divider()
 
         if st.session_state.duplicates:
             self.render_scan_statistics(st.session_state.duplicates)

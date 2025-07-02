@@ -22,7 +22,7 @@ class LocalFileSystemProvider(BaseStorageProvider):
         """No authentication needed for local file system"""
         return True
 
-    def get_directory_input_widget(self):
+    def get_directory_input_widget(self) -> Dict:
         """Return text input for local directory path"""
         import streamlit as st  # Kept inside to avoid unnecessary dependency if not used
 
@@ -73,6 +73,7 @@ class LocalFileSystemProvider(BaseStorageProvider):
         if default_index >= len(default_dirs):
             default_index = 0
         directory = st.selectbox("Enter directory path:", options=default_dirs, accept_new_options=True, index=default_index)
+        directory = {'path': directory, }
         return directory
 
     def _is_running_in_docker(self) -> bool:
@@ -121,13 +122,14 @@ class LocalFileSystemProvider(BaseStorageProvider):
         except (OSError, IOError):
             return None
 
-    def scan_directory(self, directory: str, filters: ScanFilterOptions) -> Dict[str, List[str]]:
+    def scan_directory(self, directory: dict, filters: ScanFilterOptions) -> Dict[str, List[str]]:
         """Scan directory and identify duplicates with optional filters."""
-        if not directory or not os.path.exists(directory):
+        folder_path = directory.get('path', '')
+        if not folder_path or not os.path.exists(folder_path):
             return {}
 
         file_dict = {}
-        for root, _, files in os.walk(directory):
+        for root, _, files in os.walk(folder_path):
             for file in files:
                 file_path = os.path.join(root, file)
 

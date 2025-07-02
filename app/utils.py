@@ -1,7 +1,10 @@
 """Utility functions for the application."""
-
+import io
 import os
 from datetime import datetime
+
+from PIL import Image
+
 
 def human_readable_size(size_in_bytes, upto_unit=None):
     """Convert bytes to a human-readable format, optionally up to a specified unit (e.g., 'MB')."""
@@ -49,3 +52,32 @@ def format_iso_timestamp(timestamp: str, default: str = 'Unknown') -> str:
         return dt.strftime('%Y-%m-%d %H:%M:%S')
     except ValueError:
         return timestamp
+
+
+def get_thumbnail_from_image_data(image_data: bytes, *, width:int = 250, height: int = 250):
+    image = Image.open(io.BytesIO(image_data))
+
+    # Create a square thumbnail
+    thumbnail_size = (width, height)
+    width, height = image.size
+
+    # Crop to square if needed
+    if width != height:
+        min_dimension = min(width, height)
+        left = (width - min_dimension) // 2
+        top = (height - min_dimension) // 2
+        right = left + min_dimension
+        bottom = top + min_dimension
+        image = image.crop((left, top, right, bottom))
+
+    # Create thumbnail
+    image.thumbnail(thumbnail_size, Image.Resampling.LANCZOS)
+
+    # Save thumbnail
+    thumbnail_buffer = io.BytesIO()
+    format_type = image.format if image.format else 'PNG'
+    image.save(thumbnail_buffer, format=format_type)
+
+    # Display
+    # st.image(thumbnail_buffer.getvalue(), width=250)
+    return thumbnail_buffer.getvalue()
