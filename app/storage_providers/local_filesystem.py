@@ -160,15 +160,15 @@ class LocalFileSystemProvider(BaseStorageProvider):
                 if file_hash:
                     if file_hash not in file_dict:
                         file_dict[file_hash] = []
-                    file_dict[file_hash].append(file_path)
+                    file_dict[file_hash].append({'path': file_path})
 
         return {k: v for k, v in file_dict.items() if len(v) > 1}
 
     def delete_files(self, files: List[str]) -> bool:
         """Delete selected files"""
-        file_paths = files
         try:
-            for file_path in file_paths:
+            for file in files:
+                file_path = file['path']
                 if os.path.exists(file_path):
                     os.remove(file_path)
             return True
@@ -177,16 +177,17 @@ class LocalFileSystemProvider(BaseStorageProvider):
 
     def get_file_info(self, file: str) -> dict:
         """Get file information"""
-        file_path = file
+        file_path = file['path']
         logger.info("Getting file info for: %s", file_path)
         logger.info(file)
         return get_file_info(file_path)
 
     def preview_file(self, file: str):
         """Preview file content"""
-        file_path = file
+        file_path = file['path']
         preview_file_inline(file_path)
 
     def get_file_path(self, file: str) -> str:
         """Get formatted file path for display"""
-        return os.path.abspath(file)
+        file_path = file['path']
+        return os.path.abspath(file_path)

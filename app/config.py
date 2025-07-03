@@ -50,4 +50,4 @@ MAX_PREVIEW_SIZE = {
     "audio": 100
 }
 
-LOG_LEVEL = os.getenv("LOG_LEVEL", logging.DEBUG).upper()   # Set to "INFO" or "ERROR" in production
+LOG_LEVEL = os.getenv("LOG_LEVEL", logging.DEBUG)   # Set to "INFO" or "ERROR" in production

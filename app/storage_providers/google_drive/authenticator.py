@@ -116,26 +116,30 @@ class GoogleAuthenticator(ABC):
 
     def _get_user_info(self):
         """Get user information from Google Drive API"""
-        try:
-            # Get user info from the Drive API
+        def get_drive_api_info():
             about = self.google_service.service.about().get(fields="user").execute()
             user = about.get('user', {})
-
             return {
                 'name': user.get('displayName', 'Unknown User'),
                 'email': user.get('emailAddress', 'Unknown Email'),
                 'photo': user.get('photoLink', '')
             }
-        except Exception:
-            # Fallback: try to get info from OAuth2 userinfo API
-            try:
-                userinfo_service = build('oauth2', 'v2', credentials=self.google_service.credentials)
-                user_info = userinfo_service.userinfo().get().execute()
 
-                return {
-                    'name': user_info.get('name', 'Unknown User'),
-                    'email': user_info.get('email', 'Unknown Email'),
-                    'photo': user_info.get('picture', '')
-                }
-            except Exception:
+        def get_oauth2_info():
+            userinfo_service = build('oauth2', 'v2', credentials=self.google_service.credentials)
+            user_info = userinfo_service.userinfo().get().execute()
+            return {
+                'name': user_info.get('name', 'Unknown User'),
+                'email': user_info.get('email', 'Unknown Email'),
+                'photo': user_info.get('picture', '')
+            }
+
+        try:
+            return get_drive_api_info()
+        except Exception as e:
+            logger.warning(f"Failed to get user info from Drive API: {e}")
+            try:
+                return get_oauth2_info()
+            except Exception as e:
+                logger.error(f"Failed to get user info from OAuth2 API: {e}")
                 return None

@@ -13,7 +13,7 @@ def setup_logging():
 
     # Console logging
     logging.basicConfig(
-        level=getattr(logging, log_level),
+        level=LOG_LEVEL,
         format=log_format
     )
 
