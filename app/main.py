@@ -8,8 +8,7 @@ from app.ui import run_app
 
 def setup_logging():
     """Configure logging based on environment."""
-    log_level = LOG_LEVEL
-    log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    log_format = '%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s'
 
     # Console logging
     logging.basicConfig(

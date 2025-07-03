@@ -1,5 +1,6 @@
 import os
 import logging
+import requests
 
 import streamlit as st
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -22,6 +23,9 @@ class GoogleService():
         self._setup_credentials()
         self.folder_id_to_path = {}  # Cache for folder ID to path mapping
         self.folder_path_to_id = {}  # Cache for folder paths to ID mapping
+        # Initialize drive cache for files
+        from .cache_manager import DriveCache
+        self.drive_cache = DriveCache()
 
     def _setup_credentials(self):
         """Setup Google Drive API credentials"""
@@ -174,6 +178,7 @@ The authorization code format is incorrect.
         return self.authenticated
 
     def get_file_service(self):
+        logger.debug("Getting Google Drive file service")
         return self.service.files()
 
     async def get_files(self, parent_folder_id: str, *, per_page: int = 100, page_token=None) -> tuple:
@@ -224,8 +229,8 @@ The authorization code format is incorrect.
 
     async def get_files_recursive(self, parent_folder_id: str, *, visited_folders=None):
         """Recursively get files from Google Drive folder and all subfolders"""
-        # folder_id = parent_folder_id
         logger.debug("Scanning folder_id: %s", parent_folder_id)
+
         if visited_folders is None:
             visited_folders = set()
 
@@ -237,21 +242,38 @@ The authorization code format is incorrect.
         all_files = []
         all_subfolders = []
         try:
-            # Get files in current folder
-            page_token = None
-            while True:
-                files_and_folders, page_token = await self.get_files_and_folders(parent_folder_id, page_token=page_token)
-                logger.debug("files_and_folders: %s", files_and_folders)
-                files = [f for f in files_and_folders if f.get('mimeType') != 'application/vnd.google-apps.folder']
-                subfolders = [f for f in files_and_folders if f.get('mimeType') == 'application/vnd.google-apps.folder']
-                all_files.extend(files)
-                all_subfolders.extend(subfolders)
+            # Try to get subfolders from cache first
+            cached_subfolders = self.drive_cache.get_cached_subfolders(parent_folder_id)
+            cached_files = self.drive_cache.get_cached_files(parent_folder_id, recursive=False)
 
-                logger.debug("Only files: %s", all_files)
-                logger.debug("Subfolders: %s", all_subfolders)
+            if cached_files is not None or cached_subfolders is not None: # use cache if available
+                logger.debug(f"Using cached files or subfolders for {parent_folder_id}")
+                if cached_files:
+                    all_files.extend(cached_files)
+                if cached_subfolders:
+                    all_subfolders.extend(cached_subfolders)
+            else: # use API if cache is not available
+                logger.debug(f"No cache found for {parent_folder_id}, fetching from API")
 
-                if not page_token:
-                    break
+                # Get both files and folders from API
+                page_token = None
+                while True:
+                    files_and_folders, page_token = await self.get_files_and_folders(parent_folder_id, page_token=page_token)
+                    logger.debug("files_and_folders: %s", files_and_folders)
+                    files = [f for f in files_and_folders if f.get('mimeType') != 'application/vnd.google-apps.folder']
+                    subfolders = [f for f in files_and_folders if f.get('mimeType') == 'application/vnd.google-apps.folder']
+                    all_files.extend(files)
+                    all_subfolders.extend(subfolders)
+
+                    logger.debug("Only files: %s", all_files)
+                    logger.debug("Subfolders: %s", all_subfolders)
+
+                    if not page_token:
+                        break
+
+                # Cache both subfolders and files for future use
+                self.drive_cache.cache_subfolders(parent_folder_id, all_subfolders)
+                self.drive_cache.cache_files(parent_folder_id, recursive=False, files=all_files)
 
             # Get subfolders and recursively scan them
             for subfolder in all_subfolders:
@@ -263,7 +285,8 @@ The authorization code format is incorrect.
 
         return all_files
 
-    def get_file_info(self, file_id: str) -> dict:
+    def get_file_info(self, file:dict) -> dict:
+        file_id = file['id']
         return self.get_file_detail(file_id)
 
     def get_file_detail(self, file_id: str) -> dict:
@@ -273,7 +296,15 @@ The authorization code format is incorrect.
             return {}
 
         try:
-            file = self.service.files().get(fileId=file_id, fields='*').execute()
+            # Try to get from cache first
+            cached_info = self.drive_cache.get_cached_file_details(file_id)
+            if cached_info:
+                file = get_enriched_file_info(cached_info)
+            else:
+                # Not in cache, fetch from API
+                file = self.service.files().get(fileId=file_id, fields='*').execute()
+                # Cache the result
+                self.drive_cache.cache_file_details(file)
             return get_enriched_file_info(file)
         except Exception as e:
             logger.error("Failed to retrieve file info: %s", e)
@@ -283,7 +314,8 @@ The authorization code format is incorrect.
         return self.get_folder_detail(folder_id)
 
     def get_folder_detail(self, folder_id: str) -> dict:
-        return self.get_file_info(folder_id)
+        return self.get_file_info({'id':folder_id})
+
     def get_folder_id_from_path(self, folder_path: str):
         folder_path = folder_path.strip().strip('/')
 
@@ -342,7 +374,8 @@ The authorization code format is incorrect.
             except KeyError:
                 pass
 
-            file = self.get_file_service().get(fileId=current_id, fields='*').execute()
+            # file = self.get_file_service().get(fileId=current_id, fields='*').execute()
+            file = self.get_folder_info(current_id)
             ids_to_cache.append((current_id, file['name']))
             path_parts.append(file['name'])
 
@@ -372,6 +405,58 @@ The authorization code format is incorrect.
         self.folder_id_to_path[folder_id] = full_path
 
         return full_path
+
+    def get_file_media(self, file_id: str, is_thumbnail: bool = False) -> tuple:
+        """
+        Get media content for a file, either from cache or by downloading.
+
+        Args:
+            file_id: The ID of the Google Drive file
+            is_thumbnail: If True, fetch/cache thumbnail instead of full media
+
+        Returns:
+            tuple: (media_type, media_content)
+        """
+        cache_id = f"{file_id}_thumb" if is_thumbnail else file_id
+        logger.debug("Cache hit for media %s", file_id)
+
+        # First check the cache
+        media_content = self.drive_cache.get_cached_media(cache_id)
+
+        if media_content is not None:
+            logger.debug("Media content found in cache for file %s", file_id)
+            logger.debug("media_content: %s", media_content[:100])  # Log first 100 bytes
+            return media_content
+
+        try:
+            logger.debug("Not found in cache, fetching from Google Drive")
+            if is_thumbnail:
+                # Try to get thumbnail from Google Drive's thumbnail API
+                thumbnail_url = f"https://drive.google.com/thumbnail?id={file_id}&sz=w250"
+                response = requests.head(thumbnail_url, timeout=10)
+
+                # if response.status_code == 200:
+                #     response = requests.get(thumbnail_url, timeout=10)
+                if response.status_code == 200:
+                    media_type = response.headers.get('content-type', 'image/*')
+                    media_content = response.content
+                    return media_content
+            # Get full media content
+            media_content = self.service.files().get_media(fileId=file_id).execute()
+            media_type = None
+
+            # Cache the media content
+            self.drive_cache.cache_media(
+                file_id=cache_id,
+                media_type=media_type,
+                media_content=media_content
+            )
+
+            return media_content
+
+        except Exception as e:
+            logger.error(f"Failed to get {'thumbnail' if is_thumbnail else 'media'} for file {file_id}: {e}")
+            return None
 
 
 def extract_file_id_and_name(file: dict) -> tuple[str, str]:

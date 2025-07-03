@@ -2,8 +2,8 @@
 
 import os
 import logging
-from typing import Dict, List
 import time
+from typing import Dict, List
 
 import requests
 import streamlit as st
@@ -433,9 +433,11 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
     def _handle_image_download(self, file_id: str, file_name: str) -> bool:
         """Download and display image from Google Drive"""
         try:
-            file_content = self.google_service.get_file_service().get_media(fileId=file_id).execute()
+            # file_content = self.google_service.get_file_service().get_media(fileId=file_id).execute()
+            file_content = self.google_service.get_file_media(file_id=file_id)
             return self._create_image_thumbnail(file_content, file_name)
-        except Exception:
+        except Exception as e:
+            logger.exception(e)
             return False
 
     def _try_thumbnail_preview(self, file_id: str, file_name: str) -> bool:
