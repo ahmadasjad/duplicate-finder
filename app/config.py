@@ -1,6 +1,8 @@
 """
 Configuration settings for different storage providers
 """
+import os
+import logging
 
 # Storage provider configurations
 STORAGE_PROVIDERS_CONFIG = {
@@ -47,3 +49,5 @@ MAX_PREVIEW_SIZE = {
     "videos": 500,
     "audio": 100
 }
+
+LOG_LEVEL = os.getenv("LOG_LEVEL", logging.DEBUG).upper()   # Set to "INFO" or "ERROR" in production
