@@ -63,6 +63,8 @@ class DuplicateFinderUI:
                 st.session_state.previous_provider != selected_provider_name):
                 st.session_state.duplicates = None
                 st.session_state.page = 0
+                if 'is_authenticated' in st.session_state:
+                    del st.session_state.is_authenticated  # Clear authentication status
 
             st.session_state.previous_provider = selected_provider_name
 
@@ -271,10 +273,15 @@ class DuplicateFinderUI:
         selected_provider = providers[selected_provider_name]
         st.session_state.selected_provider = selected_provider
 
-        if not selected_provider.authenticate():
+        # Move authentication check to session state to avoid multiple checks
+        if 'is_authenticated' not in st.session_state:
+            st.session_state.is_authenticated = selected_provider.authenticate()
+
+        if not st.session_state.is_authenticated:
             st.warning(f"Authentication required for {selected_provider_name}")
             if selected_provider.name != "Google Drive":
                 return
+            return
 
         directory_widget = selected_provider.get_directory_input_widget()
         if directory_widget is None:
@@ -288,6 +295,7 @@ class DuplicateFinderUI:
         scan_options = self.render_scan_options()
         # scan_options is now a ScanFilterOptions object
         if st.button("Scan for Duplicates", type="primary"):
+            st.divider()
             try:
                 with st.spinner("Scanning for duplicates..."):
                     st.session_state.duplicates = selected_provider.scan_directory(
@@ -303,8 +311,8 @@ class DuplicateFinderUI:
                     ))
             except (NoDuplicateException, NoFileFoundException) as e:
                 st.info(str(e))
+                st.session_state.duplicates = None
 
-        st.divider()
 
         if st.session_state.duplicates:
             self.render_scan_statistics(st.session_state.duplicates)
