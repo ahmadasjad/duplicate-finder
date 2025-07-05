@@ -5,6 +5,7 @@ __pycache__/
 
 # Virtual environment
 venv/
+.venv/
 .env
 
 # Docker files
@@ -15,6 +16,7 @@ venv/
 app/debug/
 /test_data/
 /test_output/
+.cache/
 
 #credentials
 credentials.json

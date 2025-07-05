@@ -21,7 +21,7 @@ def validate_scan_result(result):
     for hash_key, file_list in result.items():
         assert isinstance(hash_key, str), "Hash key should be a string"
         assert isinstance(file_list, list), "File list should be a list"
-        assert all(isinstance(f, str) for f in file_list), "All file paths should be strings"
+        assert all(isinstance(f, dict) for f in file_list), "All file paths should be strings"
         assert len(file_list) > 0, "File list should not be empty"
 
 def test_all_providers_scan():

@@ -18,9 +18,11 @@ def human_readable_size(size_in_bytes, upto_unit=None):
         size_in_bytes /= 1024
     return f"{size_in_bytes:.2f} {units[-1]}"
 
+
 def format_timestamp(timestamp):
     """Format timestamp to human-readable format."""
     return datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
+
 
 def get_file_info(file_path):
     """
@@ -37,11 +39,13 @@ def get_file_info(file_path):
         "modified": format_timestamp(stat.st_mtime)
     }
 
+
 def get_file_extension(filename: str) -> str:
     """Extract file extension from filename"""
     if '.' in filename:
         return filename.rsplit('.', 1)[-1].lower()
     return ''
+
 
 def format_iso_timestamp(timestamp: str, default: str = 'Unknown') -> str:
     """Format ISO timestamp to readable format"""
