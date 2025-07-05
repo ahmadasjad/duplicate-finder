@@ -59,7 +59,7 @@ def format_iso_timestamp(timestamp: str, default: str = 'Unknown') -> str:
 
 
 def get_thumbnail_from_image_data(image_data: bytes, *, width:int = 250, height: int = 250):
-    image = Image.open(io.BytesIO(image_data))
+    image: Image.Image = Image.open(io.BytesIO(image_data))
 
     # Create a square thumbnail
     thumbnail_size = (width, height)

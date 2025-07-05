@@ -2,6 +2,7 @@ import os
 import logging
 import requests
 
+from typing import Union
 import streamlit as st
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
@@ -406,7 +407,7 @@ The authorization code format is incorrect.
 
         return full_path
 
-    def get_file_media(self, file_id: str, is_thumbnail: bool = False) -> tuple:
+    def get_file_media(self, file_id: str, is_thumbnail: bool = False) -> Union[bytes, None]:
         """
         Get media content for a file, either from cache or by downloading.
 
@@ -430,20 +431,18 @@ The authorization code format is incorrect.
 
         try:
             logger.debug("Not found in cache, fetching from Google Drive")
+            media_type: Union[str, None] = None
             if is_thumbnail:
                 # Try to get thumbnail from Google Drive's thumbnail API
                 thumbnail_url = f"https://drive.google.com/thumbnail?id={file_id}&sz=w250"
                 response = requests.head(thumbnail_url, timeout=10)
 
-                # if response.status_code == 200:
-                #     response = requests.get(thumbnail_url, timeout=10)
                 if response.status_code == 200:
-                    media_type = response.headers.get('content-type', 'image/*')
+                    # media_type = response.headers.get('content-type', 'image/*')
                     media_content = response.content
                     return media_content
             # Get full media content
             media_content = self.service.files().get_media(fileId=file_id).execute()
-            media_type = None
 
             # Cache the media content
             self.drive_cache.cache_media(
@@ -461,7 +460,7 @@ The authorization code format is incorrect.
 
 def extract_file_id_and_name(file: dict) -> tuple[str, str]:
     """Extract file ID and name from Google Drive file dictionary"""
-    return file.get('id'), file.get('name', 'Unknown')
+    return str(file.get('id')), str(file.get('name', 'Unknown'))
 
 
 def extract_time_info(file_info: dict) -> tuple[str, str]:

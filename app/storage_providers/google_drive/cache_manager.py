@@ -4,6 +4,7 @@ import json
 import time
 from pathlib import Path
 import logging
+from typing import Union
 
 logger = logging.getLogger(__name__)
 
@@ -144,7 +145,7 @@ class DriveCache:
                 (parent_id, json.dumps(folder_data), current_time)
             )
 
-    def get_cached_file_details(self, file_id: str, max_age_hours: int = 24) -> dict:
+    def get_cached_file_details(self, file_id: str, max_age_hours: int = 24) -> Union[dict, None]:
         """Get cached details for a specific file if available and not expired"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute(
@@ -191,7 +192,7 @@ class DriveCache:
                 )
             )
 
-    def get_cached_media(self, file_id: str, max_age_hours: int = 24) -> tuple:
+    def get_cached_media(self, file_id: str, max_age_hours: int = 24) -> Union[bytes, None]:
         """Get cached media content for a specific file if available and not expired"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute(

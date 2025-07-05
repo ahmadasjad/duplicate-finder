@@ -31,7 +31,7 @@ class BaseStorageProvider(ABC):
         """Return the appropriate Streamlit widget for directory input"""
 
     @abstractmethod
-    def scan_directory(self, directory: dict, filters: ScanFilterOptions) -> Dict[str, List[str]]:
+    def scan_directory(self, directory: dict, filters: ScanFilterOptions) -> Dict[str, List[dict]]:
         """Scan directory and return duplicate file groups
 
         Args:
@@ -43,23 +43,23 @@ class BaseStorageProvider(ABC):
         """
 
     @abstractmethod
-    def delete_files(self, files: List[str]) -> bool:
+    def delete_files(self, files: List[dict]) -> bool:
         """Delete specified files"""
 
     @abstractmethod
-    def get_file_info(self, file: str) -> dict:
+    def get_file_info(self, file: dict) -> dict:
         """Get file information"""
 
     @abstractmethod
-    def get_file_path(self, file: str) -> str:
-        """Get formatted file path for display"""
+    def get_file_path(self, file: dict) -> str:
+        """Get the formatted file path for display"""
 
     @abstractmethod
-    def preview_file(self, file: str):
+    def preview_file(self, file: dict):
         """Preview file content"""
 
     def get_scan_success_msg(self, duplicate_groups: int, duplicate_files: int) -> str:  # pylint: disable=unused-argument
-        """Return custom success message after scan completion
+        """Returns custom success message after scan completion
 
         Args:
             duplicate_groups: Number of duplicate groups found

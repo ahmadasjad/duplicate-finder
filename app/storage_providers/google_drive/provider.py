@@ -192,7 +192,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         return skipped_no_hash
 
     def find_duplicates(self, all_files: list[dict], filters: ScanFilterOptions, progress_bar) -> Dict:
-        file_dict = {}
+        file_dict: dict[str, list[dict]] = {}
         skipped_no_hash = 0
         skipped_filters = 0
         total_files = len(all_files)
@@ -224,7 +224,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         duplicates = {k: v for k, v in file_dict.items() if len(v) > 1}
         return duplicates
 
-    def scan_directory(self, directory: str, filters: ScanFilterOptions) -> Dict[str, List[str]]:
+    def scan_directory(self, directory: dict, filters: ScanFilterOptions) -> Dict[str, List[dict]]:
         """Scan Google Drive directory for duplicates"""
 
         if not self.google_service.is_user_authenticated():
@@ -336,18 +336,15 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         """Return a custom success message for Google Drive scan completion"""
         return f"✅ Scan complete! Found {duplicate_groups} groups containing {duplicate_files} duplicate files."
 
-    def get_file_info(self, file: str) -> dict:
+    def get_file_info(self, file: dict) -> dict:
         """
         Get Google Drive file info
         base has type as str, but Google Drive files are dicts
         so we need to handle both cases.
         """
-        if isinstance(file, dict):
-            return get_enriched_file_info(file)
+        return get_enriched_file_info(file)
 
-        raise ValueError("Expected file param as a dictionary, got string path instead.")
-
-    def preview_file(self, file: str):
+    def preview_file(self, file: dict):
         """Preview Google Drive file - only handles preview content, no layout"""
         if not isinstance(file, dict):
             st.info("File preview not available for this Google Drive file")
@@ -408,14 +405,14 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
 
         return {'links': []}
 
-    def get_file_path(self, file: str) -> str:
+    def get_file_path(self, file: dict) -> str:
         """Get the formatted file path for Google Drive files"""
-        if isinstance(file, dict):
-            folder_path = self.google_service.get_folder_path_from_id(file.get('parents')[0])
-            return f"/{folder_path}/{file.get('name', 'Unknown')}"
-
-        # Fallback for string paths
-        return str(file)
+        try:
+            parent_id: list = file.get('parents', [])[0]
+        except IndexError:
+            return file.get('name', 'Unknown')
+        folder_path = self.google_service.get_folder_path_from_id(parent_id)
+        return f"/{folder_path}/{file.get('name', 'Unknown')}"
 
     def _create_image_thumbnail(self, image_data: bytes, file_name: str) -> bool:
         """Create and display a square thumbnail from image data"""

@@ -26,23 +26,23 @@ class DropboxProvider(BaseStorageProvider):
             return None
         return st.selectbox("Select Dropbox folder:", ["Root", "Apps", "Shared"])
 
-    def scan_directory(self, directory: str, filters: ScanFilterOptions) -> Dict[str, List[str]]:
+    def scan_directory(self, directory: dict, filters: ScanFilterOptions) -> Dict[str, List[dict]]:
         """Scan Dropbox directory (placeholder)"""
         st.warning("Dropbox scanning not yet implemented")
         return {}
 
-    def delete_files(self, files: List[str]) -> bool:
+    def delete_files(self, files: List[dict]) -> bool:
         """Delete files from Dropbox (placeholder)"""
         return False
 
-    def get_file_info(self, file: str) -> dict:
+    def get_file_info(self, file: dict) -> dict:
         """Get Dropbox file info (placeholder)"""
         return {}
 
-    def preview_file(self, file: str):
+    def preview_file(self, file: dict):
         """Preview Dropbox file (placeholder)"""
         st.info("Dropbox file preview coming soon!")
 
-    def get_file_path(self, file: str) -> str:
+    def get_file_path(self, file: dict) -> str:
         """Get formatted file path for display"""
         return f"dropbox://{file}"

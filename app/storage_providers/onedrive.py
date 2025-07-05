@@ -27,23 +27,23 @@ class OneDriveProvider(BaseStorageProvider):
             return None
         return st.selectbox("Select OneDrive folder:", ["Root", "Documents", "Pictures"])
 
-    def scan_directory(self, directory: str, filters: ScanFilterOptions) -> Dict[str, List[str]]:
+    def scan_directory(self, directory: dict, filters: ScanFilterOptions) -> Dict[str, List[dict]]:
         """Scan OneDrive directory (placeholder)"""
         st.warning("OneDrive scanning not yet implemented")
         return {}
 
-    def delete_files(self, files: List[str]) -> bool:
+    def delete_files(self, files: List[dict]) -> bool:
         """Delete files from OneDrive (placeholder)"""
         return False
 
-    def get_file_info(self, file: str) -> dict:
+    def get_file_info(self, file: dict) -> dict:
         """Get OneDrive file info (placeholder)"""
         return {}
 
-    def preview_file(self, file: str):
+    def preview_file(self, file: dict):
         """Preview OneDrive file (placeholder)"""
         st.info("OneDrive file preview coming soon!")
 
-    def get_file_path(self, file: str) -> str:
+    def get_file_path(self, file: dict) -> str:
         """Get formatted file path for display"""
         return f"onedrive://{file}"

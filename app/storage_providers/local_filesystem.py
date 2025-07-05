@@ -3,7 +3,7 @@
 import os
 import hashlib
 import logging
-from typing import Dict, List
+from typing import Dict, List, Union
 import streamlit as st
 
 from app.file_operations import is_file_shortcut, is_file_hidden, is_file_for_system
@@ -77,8 +77,8 @@ class LocalFileSystemProvider(BaseStorageProvider):
             "Enter directory path:", options=default_dirs,
             accept_new_options=True, index=default_index
             )
-        directory = {'path': directory, }
-        return directory
+        return {'path': directory, }
+        # return directory
 
     def _is_running_in_docker(self) -> bool:
         """Detect if the application is running inside a Docker container"""
@@ -115,7 +115,7 @@ class LocalFileSystemProvider(BaseStorageProvider):
 
         return False
 
-    def get_file_hash(self, file_path: str) -> str:
+    def get_file_hash(self, file_path: str) -> Union[str, None]:
         """Compute the hash of a file."""
         hash_obj = hashlib.md5()
         try:
@@ -126,13 +126,13 @@ class LocalFileSystemProvider(BaseStorageProvider):
         except (OSError, IOError):
             return None
 
-    def scan_directory(self, directory: dict, filters: ScanFilterOptions) -> Dict[str, List[str]]:
-        """Scan directory and identify duplicates with optional filters."""
+    def scan_directory(self, directory: dict, filters: ScanFilterOptions) -> Dict[str, List[dict]]:
+        """Scans directory and identify duplicates with optional filters."""
         folder_path = directory.get('path', '')
         if not folder_path or not os.path.exists(folder_path):
             return {}
 
-        file_dict = {}
+        file_dict: dict[str, list[dict]] = {}
         for root, _, files in os.walk(folder_path):
             for file in files:
                 file_path = os.path.join(root, file)
@@ -164,7 +164,7 @@ class LocalFileSystemProvider(BaseStorageProvider):
 
         return {k: v for k, v in file_dict.items() if len(v) > 1}
 
-    def delete_files(self, files: List[str]) -> bool:
+    def delete_files(self, files: List[dict]) -> bool:
         """Delete selected files"""
         try:
             for file in files:
@@ -175,19 +175,19 @@ class LocalFileSystemProvider(BaseStorageProvider):
         except OSError:
             return False
 
-    def get_file_info(self, file: str) -> dict:
+    def get_file_info(self, file: dict) -> dict:
         """Get file information"""
         file_path = file['path']
         logger.info("Getting file info for: %s", file_path)
         logger.info(file)
         return get_file_info(file_path)
 
-    def preview_file(self, file: str):
+    def preview_file(self, file: dict) -> None:
         """Preview file content"""
         file_path = file['path']
         preview_file_inline(file_path)
 
-    def get_file_path(self, file: str) -> str:
-        """Get formatted file path for display"""
+    def get_file_path(self, file: dict) -> str:
+        """Get the formatted file path for display"""
         file_path = file['path']
         return os.path.abspath(file_path)
