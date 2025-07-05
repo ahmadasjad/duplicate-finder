@@ -4,7 +4,7 @@ Storage Provider Factory
 This module provides a factory pattern for creating storage provider instances.
 """
 
-from typing import Dict, Optional
+from typing import Dict, Optional, Type
 from .base import BaseStorageProvider
 from .local_filesystem import LocalFileSystemProvider
 from .google_drive import GoogleDriveProvider
@@ -15,7 +15,7 @@ from .dropbox import DropboxProvider
 class StorageProviderFactory:
     """Factory class for creating storage provider instances"""
 
-    _providers = {
+    _providers: Dict[str, Type[BaseStorageProvider]] = {
         "Local File System": LocalFileSystemProvider,
         "Google Drive": GoogleDriveProvider,
         "OneDrive": OneDriveProvider,
@@ -27,7 +27,7 @@ class StorageProviderFactory:
         """Create a storage provider instance by name"""
         provider_class = cls._providers.get(provider_name)
         if provider_class:
-            return provider_class()
+            return provider_class(provider_name)
         return None
 
     @classmethod

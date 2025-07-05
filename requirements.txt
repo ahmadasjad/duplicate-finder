@@ -13,3 +13,5 @@ google-auth-oauthlib
 # Other cloud storage providers (optional - uncomment when implementing)
 # dropbox
 # msal
+
+python-dotenv

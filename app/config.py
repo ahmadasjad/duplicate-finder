@@ -1,6 +1,16 @@
 """
 Configuration settings for different storage providers
 """
+import os
+import logging
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+def load_config():
+    load_dotenv()
+
+# Initialize config
+load_config()
 
 # Storage provider configurations
 STORAGE_PROVIDERS_CONFIG = {
@@ -47,3 +57,6 @@ MAX_PREVIEW_SIZE = {
     "videos": 500,
     "audio": 100
 }
+
+# Environment variables with defaults
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO") # INFO, DEBUG, WARNING, ERROR, CRITICAL

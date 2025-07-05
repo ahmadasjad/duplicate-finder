@@ -1,6 +1,10 @@
+"""Preview utilities for files."""
+
+import os
+import io
+
 from PIL import Image
 import pdfplumber
-import os
 import streamlit as st
 
 def preview_file_inline(file_path):
@@ -17,8 +21,11 @@ def preview_file_inline(file_path):
     elif file_path.lower().endswith('.pdf'):
         with pdfplumber.open(file_path) as pdf:
             for i, page in enumerate(pdf.pages[:3]):  # Limit to first 3 pages
-                image = page.to_image()._repr_png_()  # Get PNG representation
-                st.image(image, caption=f"Page {i + 1}", use_container_width=True)
+                # Convert page to image and get PNG bytes using BytesIO
+                img_bytes = io.BytesIO()
+                page.to_image().save(img_bytes, format='PNG')
+                img_bytes.seek(0)
+                st.image(img_bytes, caption=f"Page {i + 1}", use_container_width=True)
 
     else:
         st.warning("Preview not available for this file type.")
