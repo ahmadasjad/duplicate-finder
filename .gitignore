@@ -17,6 +17,7 @@ app/debug/
 /test_data/
 /test_output/
 .cache/
+.local/
 
 #credentials
 credentials.json

@@ -13,7 +13,8 @@ from app.utils import format_iso_timestamp, human_readable_size, get_file_extens
 logger = logging.getLogger(__name__)
 
 # credentials_file
-CREDENTIALS_FILE = 'credentials.json'
+CREDENTIALS_FILE = '.local/credentials.json'
+TOKEN_FILE = '.local/token.json'
 SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
 
 class GoogleService():
@@ -75,7 +76,7 @@ class GoogleService():
             creds = flow.credentials
 
             # Save token
-            with open('token.json', 'w', encoding='utf-8') as token:
+            with open(TOKEN_FILE, 'w', encoding='utf-8') as token:
                 token.write(creds.to_json())
 
             # Update instance
@@ -135,16 +136,14 @@ The authorization code format is incorrect.
             return True
 
         # Check for credentials file
-        token_file = 'token.json'
-
         if not os.path.exists(CREDENTIALS_FILE):
             return False  # Setup required
 
         creds = None
 
         # Load existing token
-        if os.path.exists(token_file):
-            creds = Credentials.from_authorized_user_file(token_file, SCOPES)
+        if os.path.exists(TOKEN_FILE):
+            creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
 
         # Check if credentials are valid
         if creds and creds.valid:
@@ -164,7 +163,7 @@ The authorization code format is incorrect.
                 st.session_state.gdrive_credentials = creds
 
                 # Save refreshed token
-                with open(token_file, 'w') as token:
+                with open(TOKEN_FILE, 'w') as token:
                     token.write(creds.to_json())
 
                 if self._build_service():
