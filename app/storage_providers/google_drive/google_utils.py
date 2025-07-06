@@ -160,6 +160,7 @@ The authorization code format is incorrect.
 
         # Try to refresh expired credentials
         if creds and creds.expired and creds.refresh_token:
+            logger.debug("Refreshing expired Google Drive credentials")
             try:
                 creds.refresh(Request())
                 self.credentials = creds
@@ -172,8 +173,14 @@ The authorization code format is incorrect.
                 if self._build_service():
                     self.authenticated = True
                     return True
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error("Failed to refresh Google Drive credentials: %s", e)
+                if os.path.exists(TOKEN_FILE):
+                    try:
+                        os.remove(TOKEN_FILE)
+                        logger.warning("Deleted invalid token file: %s", TOKEN_FILE)
+                    except Exception as delete_error:
+                        logger.error("Failed to delete token file: %s", delete_error)
 
         logger.debug("Google Drive authentication failed")
         return False  # Not authenticated
