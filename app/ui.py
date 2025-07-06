@@ -281,7 +281,6 @@ class DuplicateFinderUI:
             st.warning(f"Authentication required for {selected_provider_name}")
             if selected_provider.name != "Google Drive":
                 return
-            return
 
         directory_widget = selected_provider.get_directory_input_widget()
         if directory_widget is None:
