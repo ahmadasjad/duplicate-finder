@@ -3,7 +3,7 @@ Storage Provider Factory
 
 This module provides a factory pattern for creating storage provider instances.
 """
-
+import logging
 from typing import Dict, Optional, Type
 from .base import BaseStorageProvider
 from .local_filesystem import LocalFileSystemProvider
@@ -15,6 +15,8 @@ PROVIDER_LOCAL = "Local File System"
 PROVIDER_GOOGLE_DRIVE = "Google Drive"
 PROVIDER_ONEDRIVE = "OneDrive"
 PROVIDER_DROPBOX = "Dropbox"
+
+logger = logging.getLogger(__name__)
 
 class StorageProviderFactory:
     """Factory class for creating storage provider instances"""
@@ -33,10 +35,12 @@ class StorageProviderFactory:
 
         if provider_name == PROVIDER_LOCAL:
             # Local File System provider does not require authentication
+            logger.debug("Creating Local File System provider instance")
             return LocalFileSystemProvider()
         elif provider_name == PROVIDER_GOOGLE_DRIVE:
             # Google Drive provider requires OAuth authentication
             # if not GoogleDriveProvider.is_authenticated():
+            logger.debug("Creating Google Drive provider instance")
             return GoogleDriveProvider()
         elif provider_name == PROVIDER_ONEDRIVE:
             # OneDrive provider requires OAuth authentication (Coming Soon)

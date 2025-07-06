@@ -63,6 +63,8 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
 
     def authenticate(self) -> bool:
         return self.google_service.authenticate()
+        """Simple authentication check."""
+        logger.debug("Checking Google Drive authentication")
 
     def _check_dependencies(self):
         """Check for required Google Drive dependencies and credentials file."""

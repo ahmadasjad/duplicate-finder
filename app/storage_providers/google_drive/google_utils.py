@@ -133,10 +133,13 @@ The authorization code format is incorrect.
 
         # If already authenticated, return True
         if self.authenticated and self.service:
+            logger.debug("Already authenticated with Google Drive")
             return True
 
         # Check for credentials file
+        logger.debug("Checking Google Drive credentials in file: %s", CREDENTIALS_FILE)
         if not os.path.exists(CREDENTIALS_FILE):
+            logger.error("Google Drive credentials file not found: %s", CREDENTIALS_FILE)
             return False  # Setup required
 
         creds = None
@@ -172,6 +175,7 @@ The authorization code format is incorrect.
             except Exception:
                 pass
 
+        logger.debug("Google Drive authentication failed")
         return False  # Not authenticated
 
     def is_user_authenticated(self):
