@@ -381,20 +381,21 @@ The authorization code format is incorrect.
         while True:
             try:
                 cached_path = self.folder_id_to_path[current_id]
-                hit_cached_path_parts = cached_path.split('/')
-                break
+                if not hit_cached_path_parts:  # Only store the first cached path we find
+                    hit_cached_path_parts = cached_path.split('/')
             except KeyError:
-                pass
+                # No cached path found, continue building the path
+                file = self.get_folder_info(current_id)
+                ids_to_cache.append((current_id, file['name']))
+                path_parts.append(file['name'])
 
-            # file = self.get_file_service().get(fileId=current_id, fields='*').execute()
-            file = self.get_folder_info(current_id)
-            ids_to_cache.append((current_id, file['name']))
-            path_parts.append(file['name'])
+                try:
+                    current_id = file['parents'][0]
+                except (KeyError, IndexError):
+                    break  # Reached root
 
-            try:
-                current_id = file['parents'][0]
-            except (KeyError, IndexError):
-                break  # Reached root
+            if not current_id:  # Stop if we've reached the root
+                break
 
         path_parts.reverse()
 
@@ -413,7 +414,7 @@ The authorization code format is incorrect.
             sub_path = '/'.join(path_parts[:len(path_parts) - i])
             self.folder_id_to_path[fid] = sub_path
 
-        # Also cache the requested folder_id directly (redundant safety)
+        # Also cache the final path for the requested folder_id
         self.folder_id_to_path[folder_id] = full_path
 
         return full_path
