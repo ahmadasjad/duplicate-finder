@@ -385,6 +385,13 @@ The authorization code format is incorrect.
         """Check if the given folder ID is the root folder ID"""
         return folder_id == 'root' or folder_id == self.get_root_folder_id()
 
+    def get_folder_name_from_id(self, folder_id: str) -> tuple[str, str]:
+        if self.is_root_folder_id(folder_id):
+            return 'My Drive', None
+
+        file = self.get_folder_info(folder_id)
+        return file.get('name'), file.get('parents', [None])[0]
+
     def get_folder_path_from_id(self, folder_id):
         """Get folder path from Google Drive folder ID"""
         try:
@@ -392,54 +399,13 @@ The authorization code format is incorrect.
         except KeyError:
             pass
 
-        path_parts = []
-        ids_to_cache = []
-        current_id = folder_id
-        hit_cached_path_parts = []
+        if self.is_root_folder_id(folder_id):
+            self.folder_id_to_path[folder_id] = 'My Drive' # for future hits
+            return 'My Drive'
 
-        while True:
-            logger.debug("Current folder ID: %s", current_id)
-            if self.is_root_folder_id(current_id):
-                logger.debug("Reached root folder ID. Exiting loop.")
-                break
-            try:
-                cached_path = self.folder_id_to_path[current_id]
-                if not hit_cached_path_parts:  # Only store the first cached path we find
-                    hit_cached_path_parts = cached_path.split('/')
-            except KeyError:
-                # No cached path found, continue building the path
-                file = self.get_folder_info(current_id)
-                ids_to_cache.append((current_id, file['name']))
-                path_parts.append(file['name'])
-
-                try:
-                    current_id = file['parents'][0]
-                except (KeyError, IndexError):
-                    break  # Reached root
-
-            if not current_id:  # Stop if we've reached the root
-                break
-
-        path_parts.reverse()
-
-        # Add the cached path if any
-        if hit_cached_path_parts:
-            path_parts = hit_cached_path_parts + path_parts
-
-        # Add "My Drive" if needed
-        if path_parts and path_parts[0] != 'My Drive':
-            path_parts.insert(0, 'My Drive')
-
-        full_path = '/'.join(path_parts)
-
-        # Cache all resolved folder IDs
-        for i, (fid, _) in enumerate(reversed(ids_to_cache)):
-            sub_path = '/'.join(path_parts[:len(path_parts) - i])
-            self.folder_id_to_path[fid] = sub_path
-
-        # Also cache the final path for the requested folder_id
-        self.folder_id_to_path[folder_id] = full_path
-
+        folder_name, parent_id = self.get_folder_name_from_id(folder_id)
+        full_path = self.get_folder_path_from_id(parent_id) + '/' + folder_name
+        self.folder_id_to_path[folder_id] = full_path # for future hits
         return full_path
 
     def get_file_media(self, file_id: str, is_thumbnail: bool = False) -> Union[bytes, None]:
