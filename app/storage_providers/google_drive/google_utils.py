@@ -28,6 +28,7 @@ class GoogleService():
         # Initialize drive cache for files
         from .cache_manager import DriveCache
         self.drive_cache = DriveCache()
+        self.root_folder_id = None  # Will be set after service is built
 
     def _setup_credentials(self):
         """Setup Google Drive API credentials"""
@@ -339,7 +340,7 @@ The authorization code format is incorrect.
         parent_id = 'root'  # Start from "My Drive"
         if folder_path in ('My Drive', 'root'):
             self.folder_path_to_id[folder_path] = parent_id
-            self.folder_id_to_path[parent_id] = folder_path
+            # self.folder_id_to_path[parent_id] = folder_path
             return parent_id
 
         if folder_path.startswith('My Drive'):
@@ -348,7 +349,7 @@ The authorization code format is incorrect.
 
         current_path = parts[0] if parts else 'My Drive'
         self.folder_path_to_id[current_path] = parent_id
-        self.folder_id_to_path[parent_id] = current_path
+        # self.folder_id_to_path[parent_id] = current_path
         for part in parts:
             query = f"'{parent_id}' in parents and name = '{part}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
             results = self.get_file_service().list(q=query, spaces='drive', fields="files(id, name)").execute()
@@ -362,9 +363,27 @@ The authorization code format is incorrect.
             current_path = f"{current_path}/{part}"
 
             self.folder_path_to_id[current_path] = parent_id
-            self.folder_id_to_path[parent_id] = current_path
+            # self.folder_id_to_path[parent_id] = current_path
 
         return parent_id
+
+    def get_root_folder_id(self):
+        if self.root_folder_id:
+            return self.root_folder_id
+
+        import time
+        time.sleep(1)  # Give some time for the service to initialize
+        # about = self.service.about().get(fields='rootFolderId').execute()
+        # root_id = about['rootFolderId']
+        file = self.get_file_service().get(fileId='root', fields='id').execute()
+        logger.debug("Root folder ID from API: %s", file)
+        root_id = file['id']
+        self.root_folder_id = root_id
+        return root_id
+
+    def is_root_folder_id(self, folder_id: str):
+        """Check if the given folder ID is the root folder ID"""
+        return folder_id == 'root' or folder_id == self.get_root_folder_id()
 
     def get_folder_path_from_id(self, folder_id):
         """Get folder path from Google Drive folder ID"""
@@ -379,6 +398,10 @@ The authorization code format is incorrect.
         hit_cached_path_parts = []
 
         while True:
+            logger.debug("Current folder ID: %s", current_id)
+            if self.is_root_folder_id(current_id):
+                logger.debug("Reached root folder ID. Exiting loop.")
+                break
             try:
                 cached_path = self.folder_id_to_path[current_id]
                 if not hit_cached_path_parts:  # Only store the first cached path we find
