@@ -210,6 +210,7 @@ The authorization code format is incorrect.
 
             # Exclude Google Workspace files (Docs, Sheets, Slides, etc.)
             excluded_mimes = [
+                'application/vnd.google-apps.shortcut'
                 'application/vnd.google-apps.document',
                 'application/vnd.google-apps.spreadsheet',
                 'application/vnd.google-apps.presentation',
