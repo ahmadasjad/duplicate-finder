@@ -1,6 +1,7 @@
 """UI components and logic."""
 
 import logging
+import pandas as pd
 
 import streamlit as st
 
@@ -137,7 +138,7 @@ class DuplicateFinderUI:
                 st.metric("Potential Savings", f"{savings_percentage:.1f}%")
 
     def render_file_group(self, group_idx, files, storage_provider):
-        """Render a single group of duplicate files."""
+        """Render a single group of duplicate files using a DataFrame with custom row rendering."""
         group_id = group_idx + 1
         selected_files = []
 
@@ -148,11 +149,24 @@ class DuplicateFinderUI:
         wasted_space = human_readable_size(group_file_info['size'] * (total_files_in_group - 1))
 
         expander_header = f"🗂️ Duplicate Group {group_id} - {total_files_in_group} files ({group_size} each) | 💾 Total wasted space: {wasted_space}"
+
         with st.expander(expander_header, expanded=True):
-            total_files = len(files)
+            # Create DataFrame for organization
+            file_data = []
             for file_idx, file in enumerate(files, 1):
-                if self.render_file_item(file_idx, file, storage_provider, total_files):
-                    selected_files.append(file)
+                # file_info = storage_provider.get_file_info(file)
+                file_data.append({
+                    'index': file_idx,
+                    'file': file,
+                    # 'info': file_info
+                })
+
+            df = pd.DataFrame(file_data)
+
+            # Render each row using the existing file_item layout
+            for _, row in df.iterrows():
+                if self.render_file_item(row['index'], row['file'], storage_provider, total_files_in_group):
+                    selected_files.append(row['file'])
 
         return selected_files
 
