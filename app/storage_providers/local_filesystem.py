@@ -160,7 +160,7 @@ class LocalFileSystemProvider(BaseStorageProvider):
                 if file_hash:
                     if file_hash not in file_dict:
                         file_dict[file_hash] = []
-                    file_dict[file_hash].append({'path': file_path})
+                    file_dict[file_hash].append({'path': file_path, 'id': file_path})
 
         return {k: v for k, v in file_dict.items() if len(v) > 1}
 
@@ -198,6 +198,15 @@ class LocalFileSystemProvider(BaseStorageProvider):
             source_path = source_file['path']
             target_path = target_file['path']
 
+            # If running in Docker, convert to relative path from target to source
+            if self._is_running_in_docker():
+                # Calculate the relative path from target's directory to source file
+                target_dir = os.path.dirname(target_path)
+                source_path = os.path.relpath(source_path, target_dir)
+                logger.info("Docker detected - Using relative path from target dir:")
+                logger.info("Target directory: %s", target_dir)
+                logger.info("Relative source path: %s", source_path)
+
             # Delete target file first
             if os.path.exists(target_path):
                 os.remove(target_path)
@@ -207,7 +216,7 @@ class LocalFileSystemProvider(BaseStorageProvider):
                 import winshell
                 with winshell.shortcut(target_path + '.lnk') as shortcut:
                     shortcut.path = source_path
-                    shortcut.working_directory = os.path.dirname(source_path)
+                    shortcut.working_directory = os.path.dirname(target_path)
             else:  # Unix/Linux
                 os.symlink(source_path, target_path)
 

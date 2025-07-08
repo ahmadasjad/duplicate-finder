@@ -139,7 +139,7 @@ class DuplicateFinderUI:
 
     def render_file_group(self, group_idx, files, storage_provider):
         """Render a single group of duplicate files using a DataFrame with custom row rendering."""
-        group_id = group_idx + 1
+        # group_id = group_idx + 1
         selected_files = []
 
         # Calculate group statistics
@@ -148,14 +148,14 @@ class DuplicateFinderUI:
         group_size = human_readable_size(group_file_info["size"])
         wasted_space = human_readable_size(group_file_info['size'] * (total_files_in_group - 1))
 
-        expander_header = f"🗂️ Duplicate Group {group_id} - {total_files_in_group} files ({group_size} each) | 💾 Total wasted space: {wasted_space}"
+        expander_header = f"🗂️ Duplicate Group {group_idx + 1} - {total_files_in_group} files ({group_size} each) | 💾 Total wasted space: {wasted_space}"
 
         with st.expander(expander_header, expanded=True):
             # Create DataFrame for organization
             file_data = []
             for file_idx, file in enumerate(files, 1):
                 # file_info = storage_provider.get_file_info(file)
-                file.update({'group_id': group_id})  # Add group ID to file for reference
+                file.update({'group_id': group_idx})  # Add group ID to file for reference
                 file_data.append({
                     'index': file_idx,
                     'file': file,
@@ -176,7 +176,7 @@ class DuplicateFinderUI:
         file_info = storage_provider.get_file_info(file)
         file.update(file_info)  # Update file with additional info
         human_size = human_readable_size(file_info["size"])
-        group_id = file.get('group_id')
+        # group_id = file.get('group_id')
 
         with st.container():
             col1, col2, col3 = st.columns([2, 4, 6])
@@ -228,16 +228,17 @@ class DuplicateFinderUI:
                 actions_cols.extend([f"**[{link['text']}]({link['url']})**" for link in extra_info.get('links', [])])
 
         # Add shortcut button if applicable
-        base_file = st.session_state["group_base"].get(file.get('group_id'), None)
-        if base_file is not None and file != base_file:  # Show button if this isn't the base file
-            if st.button("Create Shortcut", key=f"shortcut_{file_id}"):
-                if storage_provider.make_shortcut(base_file, file):
-                    st.success(f"Created shortcut for {file['name']}")
-                    # Force refresh by clearing duplicates
-                    st.session_state.duplicates = None
-                    st.experimental_rerun()
-                else:
-                    st.error(f"Failed to create shortcut for {file['name']}")
+        # base_file = st.session_state["group_base"].get(file.get('group_id'), None)
+        # if base_file is not None and file != base_file:  # Show button if this isn't the base file
+        if st.button("Create Shortcut", key=f"shortcut_{file_id}"):
+            self.open_shortcut_modal(storage_provider, file)
+            # if storage_provider.make_shortcut(base_file, file):
+            #     st.success(f"Created shortcut for {file['name']}")
+            #     # Force refresh by clearing duplicates
+            #     st.session_state.duplicates = None
+            #     st.experimental_rerun()
+            # else:
+            #     st.error(f"Failed to create shortcut for {file['name']}")
 
         # Display all actions in columns
         if actions_cols:
@@ -245,6 +246,28 @@ class DuplicateFinderUI:
             for col, action in zip(cols, actions_cols):
                 with col:
                     st.markdown(action)
+
+    @st.dialog("Create Shortcut")
+    def open_shortcut_modal(self, storage_provider, file):
+        tartget_path = file.get('path', '')
+        group_files = self.get_files_by_group(file.get('group_id'))
+        # st.markdown(group_files)
+        cleaned_files = [f for f in group_files if f.get('id') != file.get('id')]
+        # st.markdown(f"**{tartget_path}** will point to **<source_file>**")
+        st.markdown(f"**{tartget_path}** will be deleted and a shortcut will be pointing to ")
+        source_file = st.selectbox("Select source file:", label_visibility='collapsed', options=cleaned_files, format_func=lambda f: f.get('path', 'Unknown'))
+        # st.markdown(f"**{tartget_path}** will point to **<source_file>**")
+
+        if st.button("Create Shortcut", type="primary"):
+            if storage_provider.make_shortcut(source_file, file):
+                st.success(f"Created shortcut for {file['name']}")
+                # Force refresh by clearing duplicates
+                # st.session_state.duplicates = None
+                # st.close()
+                st.rerun()  # This closes the dialog
+                # st.experimental_rerun()
+            else:
+                st.error(f"Failed to create shortcut for {file['name']}")
 
     def render_extra_info(self, file, storage_provider):
         """Render provider-specific extra information."""
@@ -366,6 +389,21 @@ class DuplicateFinderUI:
         if st.session_state.duplicates:
             self.render_scan_statistics(st.session_state.duplicates)
             self.display_file_groups(st.session_state.duplicates, selected_provider)
+
+    def get_files_by_group(self, group_id):
+        """Get files by group ID."""
+        if 'duplicates' not in st.session_state or st.session_state.duplicates is None:
+            logger.warning("No duplicates found in session state.")
+            return []
+
+        duplicates = list(st.session_state.duplicates.values())
+        if not duplicates:
+            logger.warning("No duplicate groups available.")
+            return []
+
+        logger.debug(duplicates)
+        return duplicates[group_id]
+        # return duplicates.get(group_id, []) if group_id < len(duplicates) else []
 
     def display_file_groups(self, duplicates, storage_provider):
         """Display the duplicate file groups with pagination."""
