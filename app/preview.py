@@ -2,10 +2,31 @@
 
 import os
 import io
+import mimetypes
 
 import fitz  # PyMuPDF
 from PIL import Image
 import streamlit as st
+
+def analyze_file_type(content):
+    """
+    Analyze and determine the file type from content.
+
+    Args:
+        content (bytes): File content as bytes
+
+    Returns:
+        str: Normalized file extension (e.g., '.pdf', '.png') or None if unknown
+    """
+    if not content:
+        return None
+
+    # Try to determine from content
+    mime_type = mimetypes.guess_type(content[:1024])[0]
+    if mime_type:
+        return mimetypes.guess_extension(mime_type)
+
+    return None
 
 def preview_file_inline(file_path):
     """
@@ -24,7 +45,49 @@ def preview_file_inline(file_path):
                 page = pdf[0]  # Get first page
                 pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))  # 2x zoom for better quality
                 img_bytes = io.BytesIO(pix.tobytes(output="png"))
-                st.image(img_bytes, caption="First page", use_column_width=True)
+                st.image(img_bytes, caption="First page", use_container_width=True)
 
     else:
         st.warning("Preview not available for this file type.")
+
+def preview_blob_inline(blob_content, file_type=None):
+    """
+    Render file preview from blob content (bytes) in Streamlit inline.
+
+    Args:
+        blob_content (bytes): The file content as bytes
+        file_type (str, optional): File type/extension (e.g., 'pdf', 'png').
+            If not provided, will attempt to guess from content.
+    """
+    if not blob_content:
+        st.warning("No content to preview.")
+        return
+
+    # Get or guess file type and remove any leading dot
+    file_type = (file_type.lower() if file_type else analyze_file_type(blob_content))
+    if file_type:
+        file_type = file_type.lstrip('.')
+
+    try:
+        # Handle images
+        if file_type in ('png', 'jpg', 'jpeg'):
+            image = Image.open(io.BytesIO(blob_content))
+            st.image(image, use_container_width=True)
+
+        # Handle PDFs
+        elif file_type == 'pdf':
+            # Create a memory buffer for the PDF
+            pdf_stream = io.BytesIO(blob_content)
+
+            with fitz.open(stream=pdf_stream, filetype="pdf") as pdf:
+                if len(pdf) > 0:  # Make sure PDF has at least one page
+                    page = pdf[0]  # Get first page
+                    pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))  # 2x zoom for better quality
+                    img_bytes = io.BytesIO(pix.tobytes(output="png"))
+                    st.image(img_bytes, caption="First page", use_container_width=True)
+
+        else:
+            st.warning("Preview not available for this file type.")
+
+    except Exception as e:
+        st.error(f"Error previewing content: {str(e)}")

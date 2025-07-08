@@ -463,7 +463,17 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
 
     def _preview_pdf(self, file_id: str):
         """Handle PDF file preview"""
-        if file_id:
+        if not file_id:
+            return
+
+        try:
+            pdf_content = self.google_service.get_file_media(file_id=file_id)
+            if pdf_content:
+                from ...preview import preview_blob_inline
+                preview_blob_inline(pdf_content, 'pdf')
+        except Exception as e:
+            st.error(f"Error previewing PDF: {str(e)}")
+            # Fallback to direct link if preview fails
             pdf_embed_url = f"https://drive.google.com/file/d/{file_id}/preview"
             st.markdown(f"**📖 [View PDF]({pdf_embed_url})**")
 
