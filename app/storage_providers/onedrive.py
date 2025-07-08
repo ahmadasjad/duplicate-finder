@@ -47,3 +47,8 @@ class OneDriveProvider(BaseStorageProvider):
     def get_file_path(self, file: dict) -> str:
         """Get formatted file path for display"""
         return f"onedrive://{file}"
+
+    def make_shortcut(self, source_file: dict, target_file: dict) -> bool:
+        """Create a shortcut to source file at target location (Not implemented for OneDrive)"""
+        st.error("Shortcut creation is not yet implemented for OneDrive")
+        return False

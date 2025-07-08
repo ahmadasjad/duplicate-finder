@@ -179,9 +179,12 @@ class DuplicateFinderUI:
 
         return selected
 
-    def render_file_details(self, file, file_info, human_size, storage_provider):
+    def render_file_details(self, file, file_info, human_size, storage_provider, base_file=None):
         """Render the details of a single file."""
         full_path = storage_provider.get_file_path(file)
+        # Generate a unique identifier from file info
+        file_id = f"{file_info.get('name', '')}_{file_info.get('modified', '')}_{full_path}"
+
         st.markdown(f"""
         <div style="margin: 0; line-height: 1.6;">
             <p style="margin-bottom: 10px; font-weight: bold; color: #1f2937; font-size: 16px;">📄 {file_info['name']}</p>
@@ -197,9 +200,33 @@ class DuplicateFinderUI:
             st.markdown(f"**📅 Created:** {file_info['created']}")
             st.markdown(f"**✏️ Modified:** {file_info['modified']}")
 
-        # Provider-specific extra info
+        # Actions section
+        st.markdown("**Actions:**")
+        actions_cols = []
+
+        # Start with standard provider-specific extra info
         if hasattr(storage_provider, 'get_file_extra_info'):
-            self.render_extra_info(file, storage_provider)
+            extra_info = storage_provider.get_file_extra_info(file)
+            if extra_info.get('links'):
+                actions_cols.extend([f"**[{link['text']}]({link['url']})**" for link in extra_info.get('links', [])])
+
+        # Add shortcut button if applicable
+        if base_file is not None and file != base_file:  # Show button if this isn't the base file
+            if st.button("Create Shortcut", key=f"shortcut_{file_id}"):
+                if storage_provider.make_shortcut(base_file, file):
+                    st.success(f"Created shortcut for {file_info['name']}")
+                    # Force refresh by clearing duplicates
+                    st.session_state.duplicates = None
+                    st.experimental_rerun()
+                else:
+                    st.error(f"Failed to create shortcut for {file_info['name']}")
+
+        # Display all actions in columns
+        if actions_cols:
+            cols = st.columns(len(actions_cols))
+            for col, action in zip(cols, actions_cols):
+                with col:
+                    st.markdown(action)
 
     def render_extra_info(self, file, storage_provider):
         """Render provider-specific extra information."""

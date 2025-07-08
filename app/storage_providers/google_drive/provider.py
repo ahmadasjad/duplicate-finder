@@ -495,3 +495,45 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             self._show_image_fallback_options()
 
         return preview_success
+
+    def make_shortcut(self, source_file: dict, target_file: dict) -> bool:
+        """Create a shortcut in Google Drive"""
+        if not self.google_service.is_user_authenticated():
+            logger.error("Google Drive not authenticated")
+            return False
+
+        try:
+            source_id = source_file.get('id')
+            target_id = target_file.get('id')
+
+            if not source_id or not target_id:
+                logger.error("Invalid file IDs for shortcut creation")
+                return False
+
+            # Delete target file first
+            self.google_service.service.files().delete(fileId=target_id).execute()
+
+            # Create shortcut
+            shortcut_metadata = {
+                'mimeType': 'application/vnd.google-apps.shortcut',
+                'shortcutDetails': {
+                    'targetId': source_id
+                },
+                'name': target_file.get('name', 'Shortcut')
+            }
+
+            # Get parent folder ID of target file
+            parents = target_file.get('parents', [])
+            if parents:
+                shortcut_metadata['parents'] = parents
+
+            self.google_service.service.files().create(
+                body=shortcut_metadata,
+                fields='id'
+            ).execute()
+
+            return True
+
+        except Exception as e:
+            logger.error("Failed to create Google Drive shortcut: %s", str(e))
+            return False

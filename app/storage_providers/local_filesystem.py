@@ -191,3 +191,27 @@ class LocalFileSystemProvider(BaseStorageProvider):
         """Get the formatted file path for display"""
         file_path = file['path']
         return os.path.abspath(file_path)
+
+    def make_shortcut(self, source_file: dict, target_file: dict) -> bool:
+        """Create a shortcut to source file at target location"""
+        try:
+            source_path = source_file['path']
+            target_path = target_file['path']
+
+            # Delete target file first
+            if os.path.exists(target_path):
+                os.remove(target_path)
+
+            # Create shortcut based on OS
+            if os.name == 'nt':  # Windows
+                import winshell
+                with winshell.shortcut(target_path + '.lnk') as shortcut:
+                    shortcut.path = source_path
+                    shortcut.working_directory = os.path.dirname(source_path)
+            else:  # Unix/Linux
+                os.symlink(source_path, target_path)
+
+            return True
+        except Exception as e:
+            logger.error("Failed to create shortcut: %s", str(e))
+            return False
