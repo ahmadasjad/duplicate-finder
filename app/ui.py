@@ -211,8 +211,13 @@ class DuplicateFinderUI:
                 with col:
                     st.markdown(f"**[{link['text']}]({link['url']})**")
 
-    def render_pagination(self, total_groups):
-        """Render pagination controls."""
+    def render_pagination(self, total_groups, position="top"):
+        """Render pagination controls.
+
+        Args:
+            total_groups (int): Total number of groups
+            position (str): Position of pagination controls ("top" or "bottom")
+        """
         total_pages = (total_groups + st.session_state.per_page - 1) // st.session_state.per_page
 
         col1, col2 = st.columns([1, 3])
@@ -220,12 +225,12 @@ class DuplicateFinderUI:
             st.write(f"Page {st.session_state.page + 1} of {total_pages}")
         with col2:
             if st.session_state.page > 0:
-                if st.button("Previous"):
+                if st.button("Previous", key=f"prev_{position}"):
                     st.session_state.page -= 1
                     st.rerun()
 
             if st.session_state.page < total_pages - 1:
-                if st.button("Next"):
+                if st.button("Next", key=f"next_{position}"):
                     st.session_state.page += 1
                     st.rerun()
 
@@ -328,7 +333,8 @@ class DuplicateFinderUI:
         groups = list(duplicates.values())
         total_groups = len(groups)
 
-        self.render_pagination(total_groups)
+        # Top pagination
+        self.render_pagination(total_groups, "top")
 
         selected_files = []
         start_idx = st.session_state.page * st.session_state.per_page
@@ -338,6 +344,10 @@ class DuplicateFinderUI:
             selected = self.render_file_group(group_idx, groups[group_idx], storage_provider)
             selected_files.extend(selected)
             st.markdown("<br>", unsafe_allow_html=True)
+
+        # Bottom pagination
+        st.divider()
+        self.render_pagination(total_groups, "bottom")
 
         self.handle_file_deletion(selected_files, duplicates, storage_provider)
 
