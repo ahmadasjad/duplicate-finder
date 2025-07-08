@@ -28,7 +28,7 @@ def analyze_file_type(content):
 
     return None
 
-def preview_file_inline(file_path):
+def preview_file_inline(file_path, *, title=None):
     """
     Render file preview and metadata in Streamlit inline.
     """
@@ -45,12 +45,13 @@ def preview_file_inline(file_path):
                 page = pdf[0]  # Get first page
                 pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))  # 2x zoom for better quality
                 img_bytes = io.BytesIO(pix.tobytes(output="png"))
-                st.image(img_bytes, caption="First page", use_container_width=True)
+                caption = title if title else "First page"
+                st.image(img_bytes, caption=caption, use_container_width=True)
 
     else:
         st.warning("Preview not available for this file type.")
 
-def preview_blob_inline(blob_content, file_type=None):
+def preview_blob_inline(blob_content, file_type=None, *, title=None):
     """
     Render file preview from blob content (bytes) in Streamlit inline.
 
@@ -84,7 +85,8 @@ def preview_blob_inline(blob_content, file_type=None):
                     page = pdf[0]  # Get first page
                     pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))  # 2x zoom for better quality
                     img_bytes = io.BytesIO(pix.tobytes(output="png"))
-                    st.image(img_bytes, caption="First page", use_container_width=True)
+                    caption = title if title else "First page"
+                    st.image(img_bytes, caption=caption, use_container_width=True)
 
         else:
             st.warning("Preview not available for this file type.")
