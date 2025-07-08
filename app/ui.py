@@ -155,6 +155,7 @@ class DuplicateFinderUI:
             file_data = []
             for file_idx, file in enumerate(files, 1):
                 # file_info = storage_provider.get_file_info(file)
+                file.update({'group_id': group_id})  # Add group ID to file for reference
                 file_data.append({
                     'index': file_idx,
                     'file': file,
@@ -173,7 +174,9 @@ class DuplicateFinderUI:
     def render_file_item(self, file_idx, file, storage_provider, total_files):
         """Render a single file item within a group."""
         file_info = storage_provider.get_file_info(file)
+        file.update(file_info)  # Update file with additional info
         human_size = human_readable_size(file_info["size"])
+        group_id = file.get('group_id')
 
         with st.container():
             col1, col2, col3 = st.columns([2, 4, 6])
@@ -186,22 +189,22 @@ class DuplicateFinderUI:
                 storage_provider.preview_file(file)
 
             with col3:
-                self.render_file_details(file, file_info, human_size, storage_provider)
+                self.render_file_details(file, human_size, storage_provider)
 
             if file_idx < total_files:
                 st.divider()
 
         return selected
 
-    def render_file_details(self, file, file_info, human_size, storage_provider, base_file=None):
+    def render_file_details(self, file, human_size, storage_provider):
         """Render the details of a single file."""
         full_path = storage_provider.get_file_path(file)
         # Generate a unique identifier from file info
-        file_id = f"{file_info.get('name', '')}_{file_info.get('modified', '')}_{full_path}"
+        file_id = f"{file.get('name', '')}_{file.get('modified', '')}_{full_path}"
 
         st.markdown(f"""
         <div style="margin: 0; line-height: 1.6;">
-            <p style="margin-bottom: 10px; font-weight: bold; color: #1f2937; font-size: 16px;">📄 {file_info['name']}</p>
+            <p style="margin-bottom: 10px; font-weight: bold; color: #1f2937; font-size: 16px;">📄 {file['name']}</p>
             <p style="margin-bottom: 10px; color: #6b7280; font-size: 12px; background-color: #f3f4f6; padding: 6px 10px; border-radius: 6px;">📁 {full_path}</p>
         </div>
         """, unsafe_allow_html=True)
@@ -209,10 +212,10 @@ class DuplicateFinderUI:
         meta_col1, meta_col2 = st.columns(2)
         with meta_col1:
             st.markdown(f"**📏 Size:** {human_size}")
-            st.markdown(f"**🏷️ Type:** {file_info['extension']}")
+            st.markdown(f"**🏷️ Type:** {file['extension']}")
         with meta_col2:
-            st.markdown(f"**📅 Created:** {file_info['created']}")
-            st.markdown(f"**✏️ Modified:** {file_info['modified']}")
+            st.markdown(f"**📅 Created:** {file['created']}")
+            st.markdown(f"**✏️ Modified:** {file['modified']}")
 
         # Actions section
         st.markdown("**Actions:**")
@@ -225,15 +228,16 @@ class DuplicateFinderUI:
                 actions_cols.extend([f"**[{link['text']}]({link['url']})**" for link in extra_info.get('links', [])])
 
         # Add shortcut button if applicable
+        base_file = st.session_state["group_base"].get(file.get('group_id'), None)
         if base_file is not None and file != base_file:  # Show button if this isn't the base file
             if st.button("Create Shortcut", key=f"shortcut_{file_id}"):
                 if storage_provider.make_shortcut(base_file, file):
-                    st.success(f"Created shortcut for {file_info['name']}")
+                    st.success(f"Created shortcut for {file['name']}")
                     # Force refresh by clearing duplicates
                     st.session_state.duplicates = None
                     st.experimental_rerun()
                 else:
-                    st.error(f"Failed to create shortcut for {file_info['name']}")
+                    st.error(f"Failed to create shortcut for {file['name']}")
 
         # Display all actions in columns
         if actions_cols:
