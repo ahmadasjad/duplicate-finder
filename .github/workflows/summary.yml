@@ -33,6 +33,20 @@ jobs:
             });
             return data.substring(0, 10000); // Limit to first 20,000 characters
 
+      - name: Get changed files
+        id: files
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { data: files } = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number
+            });
+            const filesList = files.map(file => `- ${file.filename} (${file.status})`).join('\n');
+            return filesList;
+
       - name: Run AI inference
         id: inference
         uses: actions/ai-inference@v1
@@ -43,6 +57,10 @@ jobs:
             ---
             Title of the PR: ${{ github.event.pull_request.title }}
             Description of the PR: ${{ github.event.pull_request.body }}
+
+            Files changed in this PR:
+            ${{ steps.files.outputs.result }}
+
             Code Changes in the PR (truncated to first 20,000 characters):
             ${{ steps.diff.outputs.result }}
 
