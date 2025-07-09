@@ -21,17 +21,9 @@ logger = logging.getLogger(__name__)
 class StorageProviderFactory:
     """Factory class for creating storage provider instances"""
 
-    _providers: Dict[str, Type[BaseStorageProvider]] = {
-        PROVIDER_LOCAL: LocalFileSystemProvider,
-        PROVIDER_GOOGLE_DRIVE: GoogleDriveProvider,
-        PROVIDER_ONEDRIVE: OneDriveProvider,
-        PROVIDER_DROPBOX: DropboxProvider
-    }
-
     @classmethod
     def create_provider(cls, provider_name: str) -> Optional[BaseStorageProvider]:
         """Create a storage provider instance by name"""
-        # provider_class = cls._providers.get(provider_name)
 
         if provider_name == PROVIDER_LOCAL:
             # Local File System provider does not require authentication
@@ -59,8 +51,3 @@ class StorageProviderFactory:
             PROVIDER_ONEDRIVE: "Scan files in Microsoft OneDrive (Coming Soon)",
             PROVIDER_DROPBOX: "Scan files in Dropbox (Coming Soon)"
         }
-
-    @classmethod
-    def is_provider_available(cls, provider_name: str) -> bool:
-        """Check if a provider is available"""
-        return provider_name in cls._providers

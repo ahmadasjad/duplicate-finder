@@ -23,6 +23,24 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           result-encoding: string
           script: |
+            // First get list of changed files to filter out .md files
+            const { data: files } = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number
+            });
+
+            // Filter out markdown files and create a list of files to include
+            const nonMarkdownFiles = files
+              .filter(file => !file.filename.endsWith('.md'))
+              .map(file => file.filename);
+
+            // If there are no non-markdown files, return empty string
+            if (nonMarkdownFiles.length === 0) {
+              return '';
+            }
+
+            // Get the diff
             const { data } = await github.rest.pulls.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -31,7 +49,17 @@ jobs:
                 format: "diff"
               }
             });
-            return data.substring(0, 20000); // Limit to first 20,000 characters
+
+            // Split diff into sections by file and filter out .md files
+            const sections = data.split('diff --git');
+            const filteredSections = sections.filter(section => {
+              return nonMarkdownFiles.some(file => section.includes(file));
+            });
+
+            // Rejoin the filtered sections and limit to 20k chars
+            return filteredSections.length > 0
+              ? ('diff --git' + filteredSections.join('diff --git')).substring(0, 20000)
+              : '';
 
       - name: Get changed files
         id: files
