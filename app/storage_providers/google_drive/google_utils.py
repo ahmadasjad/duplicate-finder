@@ -214,7 +214,7 @@ The authorization code format is incorrect.
 
             # Exclude Google Workspace files (Docs, Sheets, Slides, etc.)
             excluded_mimes = [
-                'application/vnd.google-apps.shortcut'
+                'application/vnd.google-apps.shortcut',
                 'application/vnd.google-apps.document',
                 'application/vnd.google-apps.spreadsheet',
                 'application/vnd.google-apps.presentation',
@@ -343,7 +343,6 @@ The authorization code format is incorrect.
         parent_id = 'root'  # Start from "My Drive"
         if folder_path in ('My Drive', 'root'):
             self.folder_path_to_id[folder_path] = parent_id
-            # self.folder_id_to_path[parent_id] = folder_path
             return parent_id
 
         if folder_path.startswith('My Drive'):
@@ -352,7 +351,6 @@ The authorization code format is incorrect.
 
         current_path = parts[0] if parts else 'My Drive'
         self.folder_path_to_id[current_path] = parent_id
-        # self.folder_id_to_path[parent_id] = current_path
         for part in parts:
             query = f"'{parent_id}' in parents and name = '{part}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
             results = self.get_file_service().list(q=query, spaces='drive', fields="files(id, name)").execute()
@@ -366,7 +364,6 @@ The authorization code format is incorrect.
             current_path = f"{current_path}/{part}"
 
             self.folder_path_to_id[current_path] = parent_id
-            # self.folder_id_to_path[parent_id] = current_path
 
         return parent_id
 
@@ -376,8 +373,6 @@ The authorization code format is incorrect.
 
         import time
         time.sleep(1)  # Give some time for the service to initialize
-        # about = self.service.about().get(fields='rootFolderId').execute()
-        # root_id = about['rootFolderId']
         file = self.get_file_service().get(fileId='root', fields='id').execute()
         logger.debug("Root folder ID from API: %s", file)
         root_id = file['id']
@@ -442,7 +437,6 @@ The authorization code format is incorrect.
                 response = requests.head(thumbnail_url, timeout=10)
 
                 if response.status_code == 200:
-                    # media_type = response.headers.get('content-type', 'image/*')
                     media_content = response.content
                     return media_content
             # Get full media content

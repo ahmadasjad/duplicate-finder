@@ -6,7 +6,7 @@
    - Create an account at https://ngrok.com/
    - Get your auth token from the dashboard
    - In Google Colab, go to `Tools` → `Secrets` → `Add a new secret`
-   - Add a secret named `NGROCK_TOKEN` with your ngrok token as the value
+   - Add a secret named `NGROK_TOKEN` with your ngrok token as the value
 
 2. **Open the Colab Notebook**
    - Open [duplicate_finder.ipynb](duplicate_finder.ipynb) in Google Colab

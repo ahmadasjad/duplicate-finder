@@ -249,24 +249,16 @@ class DuplicateFinderUI:
 
     @st.dialog("Create Shortcut")
     def open_shortcut_modal(self, storage_provider, file):
-        # tartget_path = file.get('path', '')
-        tartget_path = storage_provider.get_file_path(file)
+        target_path = storage_provider.get_file_path(file)
         group_files = self.get_files_by_group(file.get('group_id'))
-        # st.markdown(group_files)
         cleaned_files = [f for f in group_files if f.get('id') != file.get('id')]
-        # st.markdown(f"**{tartget_path}** will point to **<source_file>**")
-        st.markdown(f"**{tartget_path}** will be deleted and a shortcut will be pointing to ")
+        st.markdown(f"**{target_path}** will be deleted and a shortcut will be pointing to ")
         source_file = st.selectbox("Select source file:", label_visibility='collapsed', options=cleaned_files, format_func=lambda f: storage_provider.get_file_path(f))
-        # st.markdown(f"**{tartget_path}** will point to **<source_file>**")
 
         if st.button("Create Shortcut", type="primary"):
             if storage_provider.make_shortcut(source_file, file):
                 st.success(f"Created shortcut for {file['name']}")
-                # Force refresh by clearing duplicates
-                # st.session_state.duplicates = None
-                # st.close()
                 st.rerun()  # This closes the dialog
-                # st.experimental_rerun()
             else:
                 st.error(f"Failed to create shortcut for {file['name']}")
 
@@ -404,7 +396,6 @@ class DuplicateFinderUI:
 
         logger.debug(duplicates)
         return duplicates[group_id]
-        # return duplicates.get(group_id, []) if group_id < len(duplicates) else []
 
     def display_file_groups(self, duplicates, storage_provider):
         """Display the duplicate file groups with pagination."""
