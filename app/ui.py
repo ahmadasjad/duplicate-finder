@@ -249,13 +249,14 @@ class DuplicateFinderUI:
 
     @st.dialog("Create Shortcut")
     def open_shortcut_modal(self, storage_provider, file):
-        tartget_path = file.get('path', '')
+        # tartget_path = file.get('path', '')
+        tartget_path = storage_provider.get_file_path(file)
         group_files = self.get_files_by_group(file.get('group_id'))
         # st.markdown(group_files)
         cleaned_files = [f for f in group_files if f.get('id') != file.get('id')]
         # st.markdown(f"**{tartget_path}** will point to **<source_file>**")
         st.markdown(f"**{tartget_path}** will be deleted and a shortcut will be pointing to ")
-        source_file = st.selectbox("Select source file:", label_visibility='collapsed', options=cleaned_files, format_func=lambda f: f.get('path', 'Unknown'))
+        source_file = st.selectbox("Select source file:", label_visibility='collapsed', options=cleaned_files, format_func=lambda f: storage_provider.get_file_path(f))
         # st.markdown(f"**{tartget_path}** will point to **<source_file>**")
 
         if st.button("Create Shortcut", type="primary"):

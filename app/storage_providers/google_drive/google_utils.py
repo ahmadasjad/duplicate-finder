@@ -15,7 +15,10 @@ logger = logging.getLogger(__name__)
 # credentials_file
 CREDENTIALS_FILE = '.local/credentials.json'
 TOKEN_FILE = '.local/token.json'
-SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
+SCOPES = [
+    'https://www.googleapis.com/auth/drive.readonly',
+    'https://www.googleapis.com/auth/drive',
+    ]
 
 class GoogleService():
     def __init__(self):
