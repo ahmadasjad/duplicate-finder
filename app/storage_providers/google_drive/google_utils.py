@@ -388,7 +388,7 @@ The authorization code format is incorrect.
         """Check if the given folder ID is the root folder ID"""
         return folder_id == 'root' or folder_id == self.get_root_folder_id()
 
-    def get_folder_name_from_id(self, folder_id: str) -> tuple[str, str]:
+    def get_folder_name_from_id(self, folder_id: str) -> tuple[Union[str, None], Union[str, None]]:
         if self.is_root_folder_id(folder_id):
             return 'My Drive', None
 
