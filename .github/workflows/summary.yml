@@ -16,22 +16,45 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Get PR diff
+        id: diff
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          result-encoding: string
+          script: |
+            const { data } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              mediaType: {
+                format: "diff"
+              }
+            });
+            return data.substring(0, 10000); // Limit to first 20,000 characters
+
       - name: Run AI inference
         id: inference
         uses: actions/ai-inference@v1
         with:
           prompt: |
-            Analyze the following GitHub Pull Request and write a concise, clear summary.
+            Analyze the following GitHub Pull Request and write a clear, concise summary.
             Keep the response **under 50 lines**.
-            Write as much or as little as needed to accurately summarize the change — it can be 5 lines or 40, but do not exceed 50 lines.
-
             ---
-            Title: ${{ github.event.pull_request.title }}
-            Body: ${{ github.event.pull_request.body }}
+            Title of the PR: ${{ github.event.pull_request.title }}
+            Description of the PR: ${{ github.event.pull_request.body }}
+            Code Changes in the PR (truncated to first 20,000 characters):
+            ${{ steps.diff.outputs.result }}
 
-      - name: Comment with AI summary
-        run: |
-          gh pr comment $PR_NUMBER --body '${{ steps.inference.outputs.response }}'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+      - name: Update PR description with AI summary
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const summary = ${{ toJson(steps.inference.outputs.response) }};
+            await github.rest.pulls.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              body: summary
+            });
