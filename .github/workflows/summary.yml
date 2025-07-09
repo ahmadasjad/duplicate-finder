@@ -81,15 +81,20 @@ jobs:
         with:
           prompt: |
             Analyze the following GitHub Pull Request and write a clear, concise summary.
+            Specially focus on the code changes and their impact on the project. Don't forget to mention 'New Features', 'Bug Fixes', and 'Enhancements', etc.
             Keep the response **under 50 lines**.
             ---
             Title of the PR: ${{ github.event.pull_request.title }}
-            Description of the PR: ${{ github.event.pull_request.body }}
+            Description of the PR:
+            ---
+            ${{ github.event.pull_request.body }}
 
             Files changed in this PR:
+            ---
             ${{ steps.files.outputs.result }}
 
             Code Changes in the PR (truncated to first 20,000 characters):
+            ---
             ${{ steps.diff.outputs.result }}
 
       - name: Update PR description with AI summary
