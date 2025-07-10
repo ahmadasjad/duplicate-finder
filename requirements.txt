@@ -4,6 +4,7 @@ Pillow
 PyMuPDF
 opencv-python
 pdfplumber
+python-magic
 
 # Google Drive API dependencies
 google-api-python-client

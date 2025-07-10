@@ -10,7 +10,7 @@ import streamlit as st
 
 def analyze_file_type(content):
     """
-    Analyze and determine the file type from content.
+    Analyze and determine the file type from content using file signatures.
 
     Args:
         content (bytes): File content as bytes
@@ -21,12 +21,17 @@ def analyze_file_type(content):
     if not content:
         return None
 
-    # Try to determine from content
-    mime_type = mimetypes.guess_type(content[:1024])[0]
-    if mime_type:
+    try:
+        import magic
+        mime = magic.Magic(mime=True)
+        mime_type = mime.from_buffer(content)
         return mimetypes.guess_extension(mime_type)
-
-    return None
+    except ImportError:
+        st.error("python-magic is not installed. Please install it for proper file type detection.")
+        return None
+    except Exception as e:
+        st.warning(f"Error detecting file type: {str(e)}")
+        return None
 
 def preview_file_inline(file_path, *, title=None):
     """
