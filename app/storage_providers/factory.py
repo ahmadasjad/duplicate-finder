@@ -31,7 +31,6 @@ class StorageProviderFactory:
             return LocalFileSystemProvider()
         elif provider_name == PROVIDER_GOOGLE_DRIVE:
             # Google Drive provider requires OAuth authentication
-            # if not GoogleDriveProvider.is_authenticated():
             logger.debug("Creating Google Drive provider instance")
             return GoogleDriveProvider()
         elif provider_name == PROVIDER_ONEDRIVE:

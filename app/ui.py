@@ -139,7 +139,6 @@ class DuplicateFinderUI:
 
     def render_file_group(self, group_idx, files, storage_provider):
         """Render a single group of duplicate files using a DataFrame with custom row rendering."""
-        # group_id = group_idx + 1
         selected_files = []
 
         # Calculate group statistics
@@ -154,12 +153,10 @@ class DuplicateFinderUI:
             # Create DataFrame for organization
             file_data = []
             for file_idx, file in enumerate(files, 1):
-                # file_info = storage_provider.get_file_info(file)
                 file.update({'group_id': group_idx})  # Add group ID to file for reference
                 file_data.append({
                     'index': file_idx,
                     'file': file,
-                    # 'info': file_info
                 })
 
             df = pd.DataFrame(file_data)
@@ -176,7 +173,6 @@ class DuplicateFinderUI:
         file_info = storage_provider.get_file_info(file)
         file.update(file_info)  # Update file with additional info
         human_size = human_readable_size(file_info["size"])
-        # group_id = file.get('group_id')
 
         with st.container():
             col1, col2, col3 = st.columns([2, 4, 6])
@@ -228,17 +224,8 @@ class DuplicateFinderUI:
                 actions_cols.extend([f"**[{link['text']}]({link['url']})**" for link in extra_info.get('links', [])])
 
         # Add shortcut button if applicable
-        # base_file = st.session_state["group_base"].get(file.get('group_id'), None)
-        # if base_file is not None and file != base_file:  # Show button if this isn't the base file
         if st.button("Create Shortcut", key=f"shortcut_{file_id}"):
             self.open_shortcut_modal(storage_provider, file)
-            # if storage_provider.make_shortcut(base_file, file):
-            #     st.success(f"Created shortcut for {file['name']}")
-            #     # Force refresh by clearing duplicates
-            #     st.session_state.duplicates = None
-            #     st.experimental_rerun()
-            # else:
-            #     st.error(f"Failed to create shortcut for {file['name']}")
 
         # Display all actions in columns
         if actions_cols:

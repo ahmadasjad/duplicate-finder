@@ -2,7 +2,9 @@ name: Summarize PRs with AI
 
 on:
   pull_request:
-    types: [opened, synchronize]
+    types: [opened, reopened]
+  # Optional: Allow manual triggering
+  workflow_dispatch:
 
 jobs:
   summarize-pr:
@@ -82,9 +84,10 @@ jobs:
           prompt: |
             Analyze the following GitHub Pull Request and write a clear, concise summary.
             Specially focus on the code changes and their impact on the project. Don't forget to mention 'New Features', 'Bug Fixes', and 'Enhancements', etc.
-            Keep the response **under 50 lines**.
+            .
             ---
             Title of the PR: ${{ github.event.pull_request.title }}
+
             Description of the PR:
             ---
             ${{ github.event.pull_request.body }}

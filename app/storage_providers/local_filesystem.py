@@ -44,7 +44,6 @@ class LocalFileSystemProvider(BaseStorageProvider):
             default_dirs = [
                 "/app/app/debug",
                 "/app/app/test_data",
-                # "/host_home",
                 "/host_test_data"
             ]
             default_index = 3

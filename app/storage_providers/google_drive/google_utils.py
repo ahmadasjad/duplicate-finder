@@ -228,7 +228,6 @@ The authorization code format is incorrect.
                 query_internal += f" and not mimeType='{mime}'"
 
             if query:
-                # query_internal += f" and ({query})"
                 query_internal += f" and {query}"
 
             results = self.get_file_service().list(

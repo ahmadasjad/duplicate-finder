@@ -32,7 +32,6 @@ def preview_file_inline(file_path, *, title=None):
     """
     Render file preview and metadata in Streamlit inline.
     """
-    # st.markdown(f"#### Preview for: {os.path.basename(file_path)}")
 
     # Preview based on file type
     if file_path.lower().endswith(('.png', '.jpg', '.jpeg')):
