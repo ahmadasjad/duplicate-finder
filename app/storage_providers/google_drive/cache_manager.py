@@ -7,9 +7,10 @@ import logging
 from typing import Union
 
 logger = logging.getLogger(__name__)
+CACHE_DIR = '.local/.cache'  # Default cache directory
 
 class DriveCache:
-    def __init__(self, cache_dir: str = ".cache"):
+    def __init__(self, cache_dir: str = CACHE_DIR):
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(exist_ok=True)
         self.db_path = self.cache_dir / "gdrive_cache.db"

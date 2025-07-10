@@ -47,6 +47,19 @@ class BaseStorageProvider(ABC):
         """Delete specified files"""
 
     @abstractmethod
+    def make_shortcut(self, source_file: dict, target_file: dict) -> bool:
+        """
+        Deletes the target file if it exists and creates a shortcut to the source file.
+
+        Args:
+            source_file: The file to create a shortcut for
+            target_file: The location where the shortcut should be created
+
+        Returns:
+            True if successful, False otherwise
+        """
+
+    @abstractmethod
     def get_file_info(self, file: dict) -> dict:
         """Get file information"""
 

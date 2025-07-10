@@ -13,8 +13,12 @@ from app.utils import format_iso_timestamp, human_readable_size, get_file_extens
 logger = logging.getLogger(__name__)
 
 # credentials_file
-CREDENTIALS_FILE = 'credentials.json'
-SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
+CREDENTIALS_FILE = '.local/credentials.json'
+TOKEN_FILE = '.local/token.json'
+SCOPES = [
+    'https://www.googleapis.com/auth/drive.readonly',
+    'https://www.googleapis.com/auth/drive',
+    ]
 
 class GoogleService():
     def __init__(self):
@@ -27,6 +31,7 @@ class GoogleService():
         # Initialize drive cache for files
         from .cache_manager import DriveCache
         self.drive_cache = DriveCache()
+        self.root_folder_id = None  # Will be set after service is built
 
     def _setup_credentials(self):
         """Setup Google Drive API credentials"""
@@ -75,7 +80,7 @@ class GoogleService():
             creds = flow.credentials
 
             # Save token
-            with open('token.json', 'w', encoding='utf-8') as token:
+            with open(TOKEN_FILE, 'w', encoding='utf-8') as token:
                 token.write(creds.to_json())
 
             # Update instance
@@ -132,19 +137,20 @@ The authorization code format is incorrect.
 
         # If already authenticated, return True
         if self.authenticated and self.service:
+            logger.debug("Already authenticated with Google Drive")
             return True
 
         # Check for credentials file
-        token_file = 'token.json'
-
+        logger.debug("Checking Google Drive credentials in file: %s", CREDENTIALS_FILE)
         if not os.path.exists(CREDENTIALS_FILE):
+            logger.error("Google Drive credentials file not found: %s", CREDENTIALS_FILE)
             return False  # Setup required
 
         creds = None
 
         # Load existing token
-        if os.path.exists(token_file):
-            creds = Credentials.from_authorized_user_file(token_file, SCOPES)
+        if os.path.exists(TOKEN_FILE):
+            creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
 
         # Check if credentials are valid
         if creds and creds.valid:
@@ -158,21 +164,29 @@ The authorization code format is incorrect.
 
         # Try to refresh expired credentials
         if creds and creds.expired and creds.refresh_token:
+            logger.debug("Refreshing expired Google Drive credentials")
             try:
                 creds.refresh(Request())
                 self.credentials = creds
                 st.session_state.gdrive_credentials = creds
 
                 # Save refreshed token
-                with open(token_file, 'w') as token:
+                with open(TOKEN_FILE, 'w') as token:
                     token.write(creds.to_json())
 
                 if self._build_service():
                     self.authenticated = True
                     return True
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error("Failed to refresh Google Drive credentials: %s", e)
+                if os.path.exists(TOKEN_FILE):
+                    try:
+                        os.remove(TOKEN_FILE)
+                        logger.warning("Deleted invalid token file: %s", TOKEN_FILE)
+                    except Exception as delete_error:
+                        logger.error("Failed to delete token file: %s", delete_error)
 
+        logger.debug("Google Drive authentication failed")
         return False  # Not authenticated
 
     def is_user_authenticated(self):
@@ -200,6 +214,7 @@ The authorization code format is incorrect.
 
             # Exclude Google Workspace files (Docs, Sheets, Slides, etc.)
             excluded_mimes = [
+                'application/vnd.google-apps.shortcut',
                 'application/vnd.google-apps.document',
                 'application/vnd.google-apps.spreadsheet',
                 'application/vnd.google-apps.presentation',
@@ -213,7 +228,6 @@ The authorization code format is incorrect.
                 query_internal += f" and not mimeType='{mime}'"
 
             if query:
-                # query_internal += f" and ({query})"
                 query_internal += f" and {query}"
 
             results = self.get_file_service().list(
@@ -328,7 +342,6 @@ The authorization code format is incorrect.
         parent_id = 'root'  # Start from "My Drive"
         if folder_path in ('My Drive', 'root'):
             self.folder_path_to_id[folder_path] = parent_id
-            self.folder_id_to_path[parent_id] = folder_path
             return parent_id
 
         if folder_path.startswith('My Drive'):
@@ -337,7 +350,6 @@ The authorization code format is incorrect.
 
         current_path = parts[0] if parts else 'My Drive'
         self.folder_path_to_id[current_path] = parent_id
-        self.folder_id_to_path[parent_id] = current_path
         for part in parts:
             query = f"'{parent_id}' in parents and name = '{part}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
             results = self.get_file_service().list(q=query, spaces='drive', fields="files(id, name)").execute()
@@ -351,9 +363,31 @@ The authorization code format is incorrect.
             current_path = f"{current_path}/{part}"
 
             self.folder_path_to_id[current_path] = parent_id
-            self.folder_id_to_path[parent_id] = current_path
 
         return parent_id
+
+    def get_root_folder_id(self):
+        if self.root_folder_id:
+            return self.root_folder_id
+
+        import time
+        time.sleep(1)  # Give some time for the service to initialize
+        file = self.get_file_service().get(fileId='root', fields='id').execute()
+        logger.debug("Root folder ID from API: %s", file)
+        root_id = file['id']
+        self.root_folder_id = root_id
+        return root_id
+
+    def is_root_folder_id(self, folder_id: str):
+        """Check if the given folder ID is the root folder ID"""
+        return folder_id == 'root' or folder_id == self.get_root_folder_id()
+
+    def get_folder_name_from_id(self, folder_id: str) -> tuple[Union[str, None], Union[str, None]]:
+        if self.is_root_folder_id(folder_id):
+            return 'My Drive', None
+
+        file = self.get_folder_info(folder_id)
+        return file.get('name'), file.get('parents', [None])[0]
 
     def get_folder_path_from_id(self, folder_id):
         """Get folder path from Google Drive folder ID"""
@@ -362,49 +396,13 @@ The authorization code format is incorrect.
         except KeyError:
             pass
 
-        path_parts = []
-        ids_to_cache = []
-        current_id = folder_id
-        hit_cached_path_parts = []
+        if self.is_root_folder_id(folder_id):
+            self.folder_id_to_path[folder_id] = 'My Drive' # for future hits
+            return 'My Drive'
 
-        while True:
-            try:
-                cached_path = self.folder_id_to_path[current_id]
-                hit_cached_path_parts = cached_path.split('/')
-                break
-            except KeyError:
-                pass
-
-            # file = self.get_file_service().get(fileId=current_id, fields='*').execute()
-            file = self.get_folder_info(current_id)
-            ids_to_cache.append((current_id, file['name']))
-            path_parts.append(file['name'])
-
-            try:
-                current_id = file['parents'][0]
-            except (KeyError, IndexError):
-                break  # Reached root
-
-        path_parts.reverse()
-
-        # Add the cached path if any
-        if hit_cached_path_parts:
-            path_parts = hit_cached_path_parts + path_parts
-
-        # Add "My Drive" if needed
-        if path_parts and path_parts[0] != 'My Drive':
-            path_parts.insert(0, 'My Drive')
-
-        full_path = '/'.join(path_parts)
-
-        # Cache all resolved folder IDs
-        for i, (fid, _) in enumerate(reversed(ids_to_cache)):
-            sub_path = '/'.join(path_parts[:len(path_parts) - i])
-            self.folder_id_to_path[fid] = sub_path
-
-        # Also cache the requested folder_id directly (redundant safety)
-        self.folder_id_to_path[folder_id] = full_path
-
+        folder_name, parent_id = self.get_folder_name_from_id(folder_id)
+        full_path = self.get_folder_path_from_id(parent_id) + '/' + folder_name
+        self.folder_id_to_path[folder_id] = full_path # for future hits
         return full_path
 
     def get_file_media(self, file_id: str, is_thumbnail: bool = False) -> Union[bytes, None]:
@@ -438,7 +436,6 @@ The authorization code format is incorrect.
                 response = requests.head(thumbnail_url, timeout=10)
 
                 if response.status_code == 200:
-                    # media_type = response.headers.get('content-type', 'image/*')
                     media_content = response.content
                     return media_content
             # Get full media content

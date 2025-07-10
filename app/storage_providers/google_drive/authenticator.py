@@ -11,7 +11,7 @@ from abc import ABC
 import streamlit as st
 from googleapiclient.discovery import build
 
-from .google_utils import GoogleService
+from .google_utils import GoogleService, TOKEN_FILE
 
 logger = logging.getLogger(__name__)
 
@@ -72,8 +72,7 @@ class GoogleAuthenticator(ABC):
 
     def _handle_authentication_flow(self):
         """Handle authentication UI and logic."""
-        token_file = 'token.json'
-        if not os.path.exists(token_file):
+        if not os.path.exists(TOKEN_FILE):
             st.info("🔐 **Easy Authentication Setup**")
             if 'gdrive_auth_flow' not in st.session_state:
                 st.session_state.gdrive_auth_flow = False
@@ -96,7 +95,7 @@ class GoogleAuthenticator(ABC):
                 )
                 if uploaded_token is not None:
                     try:
-                        with open('token.json', 'wb') as f:
+                        with open(TOKEN_FILE, 'wb') as f:
                             f.write(uploaded_token.getbuffer())
                         st.success("Token file uploaded successfully!")
                         st.rerun()

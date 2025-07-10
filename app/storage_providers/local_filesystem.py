@@ -44,7 +44,6 @@ class LocalFileSystemProvider(BaseStorageProvider):
             default_dirs = [
                 "/app/app/debug",
                 "/app/app/test_data",
-                # "/host_home",
                 "/host_test_data"
             ]
             default_index = 3
@@ -160,7 +159,7 @@ class LocalFileSystemProvider(BaseStorageProvider):
                 if file_hash:
                     if file_hash not in file_dict:
                         file_dict[file_hash] = []
-                    file_dict[file_hash].append({'path': file_path})
+                    file_dict[file_hash].append({'path': file_path, 'id': file_path})
 
         return {k: v for k, v in file_dict.items() if len(v) > 1}
 
@@ -191,3 +190,36 @@ class LocalFileSystemProvider(BaseStorageProvider):
         """Get the formatted file path for display"""
         file_path = file['path']
         return os.path.abspath(file_path)
+
+    def make_shortcut(self, source_file: dict, target_file: dict) -> bool:
+        """Create a shortcut to source file at target location"""
+        try:
+            source_path = source_file['path']
+            target_path = target_file['path']
+
+            # If running in Docker, convert to relative path from target to source
+            if self._is_running_in_docker():
+                # Calculate the relative path from target's directory to source file
+                target_dir = os.path.dirname(target_path)
+                source_path = os.path.relpath(source_path, target_dir)
+                logger.info("Docker detected - Using relative path from target dir:")
+                logger.info("Target directory: %s", target_dir)
+                logger.info("Relative source path: %s", source_path)
+
+            # Delete target file first
+            if os.path.exists(target_path):
+                os.remove(target_path)
+
+            # Create shortcut based on OS
+            if os.name == 'nt':  # Windows
+                import winshell
+                with winshell.shortcut(target_path + '.lnk') as shortcut:
+                    shortcut.path = source_path
+                    shortcut.working_directory = os.path.dirname(target_path)
+            else:  # Unix/Linux
+                os.symlink(source_path, target_path)
+
+            return True
+        except Exception as e:
+            logger.error("Failed to create shortcut: %s", str(e))
+            return False

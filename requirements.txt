@@ -4,6 +4,7 @@ Pillow
 PyMuPDF
 opencv-python
 pdfplumber
+python-magic
 
 # Google Drive API dependencies
 google-api-python-client
@@ -15,3 +16,4 @@ google-auth-oauthlib
 # msal
 
 python-dotenv
+winshell

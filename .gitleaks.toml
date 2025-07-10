@@ -1,0 +1,5 @@
+[allowlist]
+description = "Ignore non-secret constant"
+regexes = [
+  '''PROVIDER_DROPBOX: DropboxProvider'''
+]

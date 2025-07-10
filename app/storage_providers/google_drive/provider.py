@@ -62,6 +62,8 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         GoogleAuthenticator.__init__(self)
 
     def authenticate(self) -> bool:
+        """Simple authentication check."""
+        logger.debug("Checking Google Drive authentication")
         return self.google_service.authenticate()
 
     def _check_dependencies(self):
@@ -430,7 +432,6 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
     def _handle_image_download(self, file_id: str, file_name: str) -> bool:
         """Download and display image from Google Drive"""
         try:
-            # file_content = self.google_service.get_file_service().get_media(fileId=file_id).execute()
             file_content = self.google_service.get_file_media(file_id=file_id)
             return self._create_image_thumbnail(file_content, file_name)
         except Exception as e:
@@ -461,7 +462,17 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
 
     def _preview_pdf(self, file_id: str):
         """Handle PDF file preview"""
-        if file_id:
+        if not file_id:
+            return
+
+        try:
+            pdf_content = self.google_service.get_file_media(file_id=file_id)
+            if pdf_content:
+                from ...preview import preview_blob_inline
+                preview_blob_inline(pdf_content, 'pdf')
+        except Exception as e:
+            st.error(f"Error previewing PDF: {str(e)}")
+            # Fallback to direct link if preview fails
             pdf_embed_url = f"https://drive.google.com/file/d/{file_id}/preview"
             st.markdown(f"**📖 [View PDF]({pdf_embed_url})**")
 
@@ -483,3 +494,45 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             self._show_image_fallback_options()
 
         return preview_success
+
+    def make_shortcut(self, source_file: dict, target_file: dict) -> bool:
+        """Create a shortcut in Google Drive"""
+        if not self.google_service.is_user_authenticated():
+            logger.error("Google Drive not authenticated")
+            return False
+
+        try:
+            source_id = source_file.get('id')
+            target_id = target_file.get('id')
+
+            if not source_id or not target_id:
+                logger.error("Invalid file IDs for shortcut creation")
+                return False
+
+            # Delete target file first
+            self.google_service.service.files().delete(fileId=target_id).execute()
+
+            # Create shortcut
+            shortcut_metadata = {
+                'mimeType': 'application/vnd.google-apps.shortcut',
+                'shortcutDetails': {
+                    'targetId': source_id
+                },
+                'name': target_file.get('name', 'Shortcut')
+            }
+
+            # Get parent folder ID of target file
+            parents = target_file.get('parents', [])
+            if parents:
+                shortcut_metadata['parents'] = parents
+
+            self.google_service.service.files().create(
+                body=shortcut_metadata,
+                fields='id'
+            ).execute()
+
+            return True
+
+        except Exception as e:
+            logger.error("Failed to create Google Drive shortcut: %s", str(e))
+            return False

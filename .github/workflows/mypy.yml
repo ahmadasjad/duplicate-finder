@@ -26,7 +26,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         pip install mypy
-        pip install types-requests
+        pip install types-requests pandas-stubs
         mypy --install-types --non-interactive
 
     - name: Run mypy
