@@ -9,6 +9,7 @@ import streamlit as st
 from app.file_operations import is_file_shortcut, is_file_hidden, is_file_for_system
 from app.utils import get_file_info
 from app.preview import preview_file_inline
+from app.similarity import SimilarityDetector, SimilarityConfig, SimilarityMethod
 from .base import BaseStorageProvider, ScanFilterOptions
 
 logger = logging.getLogger(__name__)
@@ -131,7 +132,8 @@ class LocalFileSystemProvider(BaseStorageProvider):
         if not folder_path or not os.path.exists(folder_path):
             return {}
 
-        file_dict: dict[str, list[dict]] = {}
+        # Collect all valid files first
+        all_files = []
         for root, _, files in os.walk(folder_path):
             for file in files:
                 file_path = os.path.join(root, file)
@@ -154,14 +156,36 @@ class LocalFileSystemProvider(BaseStorageProvider):
                 except OSError:
                     continue
 
-                # Add to duplicates if it passes all filters
+                # Skip subfolders if not requested
+                if not filters.include_subfolders and root != folder_path:
+                    continue
+
+                all_files.append({'path': file_path, 'id': file_path})
+
+        # Use similarity detection if enabled
+        if filters.enable_similarity_detection and filters.similarity_threshold < 1.0:
+            logger.info("Using similarity detection with threshold: %s", filters.similarity_threshold)
+            similarity_config = SimilarityConfig(
+                threshold=filters.similarity_threshold,
+                enable_perceptual_hash=filters.enable_perceptual_hash,
+                enable_content_similarity=filters.enable_content_similarity,
+                enable_image_similarity=filters.enable_image_similarity,
+                enable_filename_similarity=filters.enable_filename_similarity
+            )
+            detector = SimilarityDetector(similarity_config)
+            return detector.find_similar_files(all_files)
+        else:
+            # Use traditional hash-based exact duplicate detection
+            file_dict: dict[str, list[dict]] = {}
+            for file_info in all_files:
+                file_path = file_info['path']
                 file_hash = self.get_file_hash(file_path)
                 if file_hash:
                     if file_hash not in file_dict:
                         file_dict[file_hash] = []
-                    file_dict[file_hash].append({'path': file_path, 'id': file_path})
+                    file_dict[file_hash].append(file_info)
 
-        return {k: v for k, v in file_dict.items() if len(v) > 1}
+            return {k: v for k, v in file_dict.items() if len(v) > 1}
 
     def delete_files(self, files: List[dict]) -> bool:
         """Delete selected files"""
@@ -223,3 +247,22 @@ class LocalFileSystemProvider(BaseStorageProvider):
         except Exception as e:
             logger.error("Failed to create shortcut: %s", str(e))
             return False
+
+    def get_scan_success_msg(self, duplicate_groups: int, duplicate_files: int) -> str:
+        """Returns custom success message after scan completion"""
+        return f"Found {duplicate_groups} groups of similar/duplicate files containing {duplicate_files} total files."
+
+    def get_similarity_explanation(self, file1: dict, file2: dict, filters: ScanFilterOptions) -> str:
+        """Get explanation of why two files are considered similar."""
+        if not filters.enable_similarity_detection or filters.similarity_threshold >= 1.0:
+            return "Identical files (same hash)"
+
+        similarity_config = SimilarityConfig(
+            threshold=filters.similarity_threshold,
+            enable_perceptual_hash=filters.enable_perceptual_hash,
+            enable_content_similarity=filters.enable_content_similarity,
+            enable_image_similarity=filters.enable_image_similarity,
+            enable_filename_similarity=filters.enable_filename_similarity
+        )
+        detector = SimilarityDetector(similarity_config)
+        return detector.get_similarity_explanation(file1, file2)

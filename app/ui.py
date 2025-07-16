@@ -94,7 +94,59 @@ class DuplicateFinderUI:
     def render_scan_options(self):
         """Render the scan options UI and return a ScanFilterOptions object."""
         st.subheader("Scan Options")
-        with st.expander("Advanced Filters", expanded=False):
+
+        # Similarity Detection Section
+        with st.expander("🔍 Similarity Detection", expanded=True):
+            st.markdown("**Configure how similar files should be to be considered duplicates:**")
+
+            enable_similarity = st.checkbox(
+                "Enable similarity-based detection",
+                value=False,
+                help="Find files that are similar but not necessarily identical"
+            )
+
+            if enable_similarity:
+                similarity_threshold = st.select_slider(
+                    "Similarity threshold",
+                    options=[1.0, 0.99, 0.95, 0.90, 0.85, 0.80, 0.75, 0.70],
+                    value=0.95,
+                    format_func=lambda x: f"{x:.0%}" if x == 1.0 else f"{x:.0%}",
+                    help="Higher values require more similarity to consider files as duplicates"
+                )
+
+                st.markdown("**Similarity methods to use:**")
+                col1, col2 = st.columns(2)
+                with col1:
+                    enable_perceptual = st.checkbox(
+                        "Visual similarity (images)",
+                        value=True,
+                        help="Compare images based on visual appearance"
+                    )
+                    enable_content = st.checkbox(
+                        "Content similarity (text/binary)",
+                        value=True,
+                        help="Compare file content for text and binary files"
+                    )
+                with col2:
+                    enable_image_structure = st.checkbox(
+                        "Image structure similarity",
+                        value=True,
+                        help="Compare images based on structural features"
+                    )
+                    enable_filename = st.checkbox(
+                        "Filename similarity",
+                        value=False,
+                        help="Consider files with similar names as potential duplicates"
+                    )
+            else:
+                similarity_threshold = 1.0
+                enable_perceptual = True
+                enable_content = True
+                enable_image_structure = True
+                enable_filename = False
+
+        # Advanced Filters Section
+        with st.expander("⚙️ Advanced Filters", expanded=False):
             col1, col2 = st.columns(2)
             with col1:
                 include_subfolders = st.checkbox(
@@ -115,21 +167,32 @@ class DuplicateFinderUI:
             exclude_system=exclude_system,
             min_size_kb=min_size,
             max_size_kb=max_size,
-            include_subfolders=include_subfolders
+            include_subfolders=include_subfolders,
+            similarity_threshold=similarity_threshold,
+            enable_similarity_detection=enable_similarity,
+            enable_perceptual_hash=enable_perceptual,
+            enable_content_similarity=enable_content,
+            enable_image_similarity=enable_image_structure,
+            enable_filename_similarity=enable_filename
         )
 
     def render_scan_statistics(self, duplicates):
         """Render the scan statistics in the sidebar."""
         with st.sidebar:
             st.markdown("---")
-            st.subheader("Scan Results")
+            scan_options = getattr(st.session_state, 'scan_options', None)
+
+            if scan_options and scan_options.enable_similarity_detection and scan_options.similarity_threshold < 1.0:
+                st.subheader(f"Similarity Results ({scan_options.similarity_threshold:.0%})")
+            else:
+                st.subheader("Scan Results")
 
             total_groups = len(duplicates)
             total_duplicates = sum(len(group) for group in duplicates.values())
             total_files = total_duplicates
             duplicate_files = total_files - total_groups
 
-            st.metric("Duplicate Groups", total_groups)
+            st.metric("Similar/Duplicate Groups", total_groups)
             st.metric("Total Files", total_files)
             st.metric("Duplicate Files", duplicate_files)
 
@@ -147,9 +210,26 @@ class DuplicateFinderUI:
         group_size = human_readable_size(group_file_info["size"])
         wasted_space = human_readable_size(group_file_info['size'] * (total_files_in_group - 1))
 
-        expander_header = f"🗂️ Duplicate Group {group_idx + 1} - {total_files_in_group} files ({group_size} each) | 💾 Total wasted space: {wasted_space}"
+        # Check if similarity detection was used
+        scan_options = getattr(st.session_state, 'scan_options', None)
+        similarity_info = ""
+        if scan_options and scan_options.enable_similarity_detection and scan_options.similarity_threshold < 1.0:
+            similarity_info = f" | 🔍 {scan_options.similarity_threshold:.0%} similarity"
+
+        # expander_header = f"🗂️ {'Similar' if similarity_info else 'Duplicate'} Group {group_idx + 1} - {total_files_in_group} files ({group_size} each) | 💾 Total wasted space: {wasted_space}{similarity_info}"
+        expander_header = f"🗂️ {'Similar' if similarity_info else 'Duplicate'} Group {group_idx + 1} - {total_files_in_group} files ({group_size} each) | 💾 Total wasted space: {wasted_space}"
 
         with st.expander(expander_header, expanded=True):
+            # Show similarity explanation for the first pair if using similarity detection
+            if similarity_info and len(files) >= 2 and hasattr(storage_provider, 'get_similarity_explanation'):
+                try:
+                    explanation = storage_provider.get_similarity_explanation(files[0], files[1], scan_options)
+                    # if explanation and explanation != "Identical files (same hash)":
+                    if explanation:
+                        st.info(f"**Similarity reason:** {explanation}")
+                except Exception as e:
+                    logger.debug(f"Error getting similarity explanation: {e}")
+
             # Create DataFrame for organization
             file_data = []
             for file_idx, file in enumerate(files, 1):
@@ -345,6 +425,9 @@ class DuplicateFinderUI:
             return
 
         scan_options = self.render_scan_options()
+        # Store scan options in session state for later use
+        st.session_state.scan_options = scan_options
+
         # scan_options is now a ScanFilterOptions object
         if st.button("Scan for Duplicates", type="primary"):
             st.divider()
@@ -361,8 +444,16 @@ class DuplicateFinderUI:
                         len(st.session_state.duplicates),
                         total_duplicates
                     ))
+                # else:
+                #     st.info("No duplicates found in the selected directory.")
+                #     st.session_state.duplicates = None
             except (NoDuplicateException, NoFileFoundException) as e:
                 st.info(str(e))
+                st.session_state.duplicates = None
+            except Exception as e:
+                st.error(f"Error during scan")
+                st.error("Please check the logs for more details.")
+                logger.error("Scan failed with error: %s", str(e), exc_info=True)
                 st.session_state.duplicates = None
 
 

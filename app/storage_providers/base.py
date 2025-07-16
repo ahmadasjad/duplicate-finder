@@ -14,6 +14,13 @@ class ScanFilterOptions:
     min_size_kb: int = 0
     max_size_kb: int = 0
     include_subfolders: bool = True
+    # Similarity detection options
+    similarity_threshold: float = 1.0  # 1.0 = exact match, 0.95 = 95% similar, etc.
+    enable_similarity_detection: bool = False
+    enable_perceptual_hash: bool = True
+    enable_content_similarity: bool = True
+    enable_image_similarity: bool = True
+    enable_filename_similarity: bool = False
 
 
 class BaseStorageProvider(ABC):
