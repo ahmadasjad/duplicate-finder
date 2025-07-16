@@ -2,9 +2,11 @@ streamlit
 pandas
 Pillow
 PyMuPDF
-opencv-python
+opencv-python-headless
 pdfplumber
 python-magic
+numpy
+scikit-image
 
 # Google Drive API dependencies
 google-api-python-client
