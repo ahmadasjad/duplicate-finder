@@ -162,8 +162,29 @@ class LocalFileSystemProvider(BaseStorageProvider):
 
                 all_files.append({'path': file_path, 'id': file_path})
 
-        # Use similarity detection if enabled
-        if filters.enable_similarity_detection and filters.similarity_threshold < 1.0:
+        # Always check for exact duplicates first
+        file_dict: dict[str, list[dict]] = {}
+        for file_info in all_files:
+            file_path = file_info['path']
+            file_hash = self.get_file_hash(file_path)
+            if file_hash:
+                if file_hash not in file_dict:
+                    file_dict[file_hash] = []
+                file_dict[file_hash].append(file_info)
+        exact = {k: v for k, v in file_dict.items() if len(v) > 1}
+
+        # Remove all but one file from each exact group from all_files
+        exact_file_paths = set()
+        for group in exact.values():
+            # Keep the first file, remove the rest
+            for file_info in group[1:]:
+                exact_file_paths.add(file_info['path'])
+        filtered_files = [f for f in all_files if f['path'] not in exact_file_paths]
+
+        # If similarity is enabled, run on remaining files
+        if not (filters.enable_similarity_detection and filters.similarity_threshold < 1.0):
+            return exact
+        else:
             logger.info("Using similarity detection with threshold: %s", filters.similarity_threshold)
             similarity_config = SimilarityConfig(
                 threshold=filters.similarity_threshold,
@@ -173,19 +194,17 @@ class LocalFileSystemProvider(BaseStorageProvider):
                 enable_filename_similarity=filters.enable_filename_similarity
             )
             detector = SimilarityDetector(similarity_config)
-            return detector.find_similar_files(all_files)
-        else:
-            # Use traditional hash-based exact duplicate detection
-            file_dict: dict[str, list[dict]] = {}
-            for file_info in all_files:
-                file_path = file_info['path']
-                file_hash = self.get_file_hash(file_path)
-                if file_hash:
-                    if file_hash not in file_dict:
-                        file_dict[file_hash] = []
-                    file_dict[file_hash].append(file_info)
-
-            return {k: v for k, v in file_dict.items() if len(v) > 1}
+            similar = detector.find_similar_files(filtered_files)
+            # Merge both exact and similar groups into one dict
+            merged = {}
+            idx = 0
+            for group in exact.values():
+                merged[f"group_{idx}"] = group
+                idx += 1
+            for group in similar.values():
+                merged[f"group_{idx}"] = group
+                idx += 1
+            return merged
 
     def delete_files(self, files: List[dict]) -> bool:
         """Delete selected files"""
