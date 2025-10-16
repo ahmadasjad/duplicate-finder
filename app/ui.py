@@ -1,6 +1,7 @@
 """UI components and logic."""
 
 import logging
+import time
 import pandas as pd
 
 import streamlit as st
@@ -195,8 +196,17 @@ class DuplicateFinderUI:
     def render_file_details(self, file, human_size, storage_provider):
         """Render the details of a single file."""
         full_path = storage_provider.get_file_path(file)
-        # Generate a unique identifier from file info
-        file_id = f"{file.get('name', '')}_{file.get('modified', '')}_{full_path}"
+
+        # Generate guaranteed unique key for each shortcut button
+        unique_parts = [
+            str(file.get('id', '')),
+            str(file.get('group_id', '')),
+            str(hash(full_path))[:8],  # Add truncated path hash
+            str(time.time_ns())  # Add nanosecond timestamp for guaranteed uniqueness
+        ]
+        file_id = '_'.join(filter(None, unique_parts))
+
+        logger.debug(f"Generated unique shortcut key: shortcut_{file_id}")
 
         st.markdown(f"""
         <div style="margin: 0; line-height: 1.6;">
