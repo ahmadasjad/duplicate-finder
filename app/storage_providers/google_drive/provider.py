@@ -318,6 +318,11 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
                 body={'trashed': True}
             ).execute()
             st.success(f"✅ Moved '{file_name}' to trash")
+            # Also delete local cache entries related to this file
+            try:
+                self.google_service.drive_cache.delete_file_cache(file_id)
+            except Exception:
+                logger.debug("Failed to remove local cache for file %s", file_id, exc_info=True)
             return True
         except Exception as e:
             st.error(f"❌ Failed to delete '{file_name}'")

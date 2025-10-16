@@ -238,3 +238,20 @@ class DriveCache:
                 """,
                 (file_id, media_type, media_content, current_time)
             )
+
+    def delete_file_cache(self, file_id: str):
+        """Delete all cached entries related to a single file id.
+
+        This removes rows from `file_details` and `media_storage` for the
+        provided file id. We intentionally do not attempt to update
+        `file_cache` entries (which are folder-scoped lists) here because
+        modifying the JSON stored there risks corruption; those folder
+        caches will expire naturally.
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute("DELETE FROM file_details WHERE file_id = ?", (file_id,))
+                conn.execute("DELETE FROM media_storage WHERE file_id = ?", (file_id,))
+                logger.debug("Deleted cache entries for file_id=%s", file_id)
+        except Exception as e:
+            logger.exception("Failed to delete cache for file %s: %s", file_id, e)
