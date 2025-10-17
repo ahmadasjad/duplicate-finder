@@ -126,6 +126,42 @@ class LocalFileSystemProvider(BaseStorageProvider):
         except (OSError, IOError):
             return None
 
+    def _find_exact_duplicates(self, all_files: List[dict]) -> dict:
+        """Find exact duplicates by MD5 and return (exact_groups, remaining_files)."""
+        file_dict: dict[str, list[dict]] = {}
+        for file_info in all_files:
+            file_path = file_info['path']
+            file_hash = self.get_file_hash(file_path)
+            if file_hash:
+                file_dict.setdefault(file_hash, []).append(file_info)
+
+        exact_groups = {k: v for k, v in file_dict.items() if len(v) > 1}
+
+        return exact_groups
+
+    def _find_similar_groups(self, all_files: List[dict], filters: ScanFilterOptions, exact_groups) -> dict:
+        """Run SimilarityDetector on provided file entries and return similar groups."""
+        logger.info("Using similarity detection with threshold: %s", filters.similarity_threshold)
+
+        # Remove all but one file from each exact group from all_files
+        exact_file_paths = set()
+        for group in exact_groups.values():
+            # Keep the first file, remove the rest
+            for file_info in group[1:]:
+                exact_file_paths.add(file_info['path'])
+        filtered_files = [f for f in all_files if f['path'] not in exact_file_paths]
+
+        similarity_config = SimilarityConfig(
+            threshold=filters.similarity_threshold,
+            enable_perceptual_hash=filters.enable_perceptual_hash,
+            enable_content_similarity=filters.enable_content_similarity,
+            enable_image_similarity=filters.enable_image_similarity,
+            enable_filename_similarity=filters.enable_filename_similarity
+        )
+        detector = SimilarityDetector(similarity_config)
+        # SimilarityDetector expects entries with 'path' key
+        return detector.find_similar_files(filtered_files)
+
     def scan_directory(self, directory: dict, filters: ScanFilterOptions) -> Dict[str, List[dict]]:
         """Scans directory and identify duplicates with optional filters."""
         folder_path = directory.get('path', '')
@@ -133,7 +169,7 @@ class LocalFileSystemProvider(BaseStorageProvider):
             return {}
 
         # Collect all valid files first
-        all_files = []
+        all_files: List[dict] = []
         for root, _, files in os.walk(folder_path):
             for file in files:
                 file_path = os.path.join(root, file)
@@ -162,49 +198,27 @@ class LocalFileSystemProvider(BaseStorageProvider):
 
                 all_files.append({'path': file_path, 'id': file_path})
 
-        # Always check for exact duplicates first
-        file_dict: dict[str, list[dict]] = {}
-        for file_info in all_files:
-            file_path = file_info['path']
-            file_hash = self.get_file_hash(file_path)
-            if file_hash:
-                if file_hash not in file_dict:
-                    file_dict[file_hash] = []
-                file_dict[file_hash].append(file_info)
-        exact = {k: v for k, v in file_dict.items() if len(v) > 1}
+        # First: exact duplicate detection
+        exact_groups = self._find_exact_duplicates(all_files)
 
-        # Remove all but one file from each exact group from all_files
-        exact_file_paths = set()
-        for group in exact.values():
-            # Keep the first file, remove the rest
-            for file_info in group[1:]:
-                exact_file_paths.add(file_info['path'])
-        filtered_files = [f for f in all_files if f['path'] not in exact_file_paths]
-
-        # If similarity is enabled, run on remaining files
+        # If similarity is not enabled or threshold is exact, return exact groups
         if not (filters.enable_similarity_detection and filters.similarity_threshold < 1.0):
-            return exact
-        else:
-            logger.info("Using similarity detection with threshold: %s", filters.similarity_threshold)
-            similarity_config = SimilarityConfig(
-                threshold=filters.similarity_threshold,
-                enable_perceptual_hash=filters.enable_perceptual_hash,
-                enable_content_similarity=filters.enable_content_similarity,
-                enable_image_similarity=filters.enable_image_similarity,
-                enable_filename_similarity=filters.enable_filename_similarity
-            )
-            detector = SimilarityDetector(similarity_config)
-            similar = detector.find_similar_files(filtered_files)
-            # Merge both exact and similar groups into one dict
-            merged = {}
-            idx = 0
-            for group in exact.values():
-                merged[f"group_{idx}"] = group
-                idx += 1
-            for group in similar.values():
-                merged[f"group_{idx}"] = group
-                idx += 1
-            return merged
+            return exact_groups
+
+        # Run similarity across remaining files
+        similar_groups = self._find_similar_groups(all_files, filters, exact_groups)
+
+        # Merge both exact and similar groups into one dict with unique group ids
+        merged: dict = {}
+        idx = 0
+        for group in exact_groups.values():
+            merged[f"group_{idx}"] = group
+            idx += 1
+        for group in similar_groups.values():
+            merged[f"group_{idx}"] = group
+            idx += 1
+
+        return merged
 
     def delete_files(self, files: List[dict]) -> bool:
         """Delete selected files"""
