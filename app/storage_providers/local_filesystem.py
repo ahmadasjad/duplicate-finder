@@ -126,7 +126,7 @@ class LocalFileSystemProvider(BaseStorageProvider):
         except (OSError, IOError):
             return None
 
-    def _find_exact_duplicates(self, all_files: List[dict]) -> dict:
+    def _find_duplicates_exact(self, all_files: List[dict]) -> dict:
         """Find exact duplicates by MD5 and return (exact_groups, remaining_files)."""
         file_dict: dict[str, list[dict]] = {}
         for file_info in all_files:
@@ -139,7 +139,7 @@ class LocalFileSystemProvider(BaseStorageProvider):
 
         return exact_groups
 
-    def _find_similar_groups(self, all_files: List[dict], filters: ScanFilterOptions, exact_groups) -> dict:
+    def _find_duplicates_similar(self, all_files: List[dict], filters: ScanFilterOptions, exact_groups) -> dict:
         """Run SimilarityDetector on provided file entries and return similar groups."""
         logger.info("Using similarity detection with threshold: %s", filters.similarity_threshold)
 
@@ -199,14 +199,14 @@ class LocalFileSystemProvider(BaseStorageProvider):
                 all_files.append({'path': file_path, 'id': file_path})
 
         # First: exact duplicate detection
-        exact_groups = self._find_exact_duplicates(all_files)
+        exact_groups = self._find_duplicates_exact(all_files)
 
         # If similarity is not enabled or threshold is exact, return exact groups
         if not (filters.enable_similarity_detection and filters.similarity_threshold < 1.0):
             return exact_groups
 
         # Run similarity across remaining files
-        similar_groups = self._find_similar_groups(all_files, filters, exact_groups)
+        similar_groups = self._find_duplicates_similar(all_files, filters, exact_groups)
 
         # Merge both exact and similar groups into one dict with unique group ids
         merged: dict = {}
