@@ -536,4 +536,9 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
 
 
 class GoogleDriveFile(BaseFile):
-    pass
+    def is_image_file(self) -> bool:
+        """Check if file is an image."""
+        file_name = self.get('name', '')
+        ext = os.path.splitext(file_name)[1].lower()
+        image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff', '.webp'}
+        return ext in image_extensions

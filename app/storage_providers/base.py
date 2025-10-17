@@ -160,6 +160,10 @@ class BaseFile(dict, ABC):
     # You can override __getitem__ etc. if you want to customize behavior,
     # but default dict methods will already work perfectly.
 
+    @abstractmethod
+    def is_image_file(self) -> bool:
+        pass
+
     # ✅ Example custom helpers
     def get_keys(self):
         return list(self.keys())

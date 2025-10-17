@@ -178,7 +178,7 @@ class SimilarityDetector:
         if not path1 or not path2:
             return 0.0
 
-        if not self._is_image_file(path1) or not self._is_image_file(path2):
+        if not file1.is_image_file() or not file2.is_image_file():
             return 0.0
 
         try:
@@ -285,7 +285,7 @@ class SimilarityDetector:
         if not path1 or not path2:
             return 0.0
 
-        if not self._is_image_file(path1) or not self._is_image_file(path2):
+        if not file1.is_image_file() or not file2.is_image_file():
             return 0.0
 
         try:
@@ -337,11 +337,6 @@ class SimilarityDetector:
 
         similarity = difflib.SequenceMatcher(None, name1, name2).ratio()
         return similarity
-
-    def _is_image_file(self, file_path: str) -> bool:
-        """Check if file is an image."""
-        ext = os.path.splitext(file_path)[1].lower()
-        return ext in self._image_extensions
 
     def _is_text_file(self, file_path: str) -> bool:
         """Check if file is a text file."""

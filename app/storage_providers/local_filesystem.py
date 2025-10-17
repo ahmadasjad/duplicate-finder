@@ -16,7 +16,16 @@ logger = logging.getLogger(__name__)
 
 
 class LocalFile(BaseFile):
-    pass
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff', '.webp'}
+        self._text_extensions = {'.txt', '.md', '.py', '.js', '.html', '.css', '.json', '.xml', '.csv'}
+
+    def is_image_file(self) -> bool:
+        """Check if file is an image."""
+        file_path = self.get('path', '')
+        ext = os.path.splitext(file_path)[1].lower()
+        return ext in self._image_extensions
 
 
 class LocalFileSystemProvider(BaseStorageProvider):
