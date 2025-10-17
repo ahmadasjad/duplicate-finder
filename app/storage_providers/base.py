@@ -179,6 +179,10 @@ class BaseFile(dict, ABC):
     def get_content(self) -> Optional[bytes]:
         pass
 
+    @abstractmethod
+    def get_image():
+        pass
+
     def is_image_file(self) -> bool:
         """Check if file is an image."""
         return self.get_extension() in self._image_extensions

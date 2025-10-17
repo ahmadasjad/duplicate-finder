@@ -5,6 +5,7 @@ import hashlib
 import logging
 from typing import Dict, List, Tuple, Union, Optional, Set
 import streamlit as st
+import cv2
 
 from app.file_operations import is_file_shortcut, is_file_hidden, is_file_for_system
 from app.utils import get_file_info
@@ -52,6 +53,12 @@ class LocalFile(BaseFile):
         except (OSError, IOError) as e:
             logger.debug(f"Error reading file content for {self.get_path()}: {e}")
             return None
+
+    def get_image(self):
+        img = cv2.imread(self.get_path(), cv2.IMREAD_GRAYSCALE)
+        if img is None:
+            raise FileNotFoundError(f"Could not read {self.get_path()}")
+        return img
 
 
 class LocalFileSystemProvider(BaseStorageProvider):

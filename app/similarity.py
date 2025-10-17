@@ -186,10 +186,7 @@ class SimilarityDetector:
         """Calculate perceptual hash of an image."""
         image_path = image_file.get_path()
         try:
-            # Load image using OpenCV
-            img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
-            if img is None:
-                return None
+            img = image_file.get_image()
 
             # Resize to 8x8
             img = cv2.resize(img, (8, 8))
@@ -266,8 +263,8 @@ class SimilarityDetector:
 
         try:
             # Load images
-            img1 = cv2.imread(file1.get_path(), cv2.IMREAD_GRAYSCALE)
-            img2 = cv2.imread(file2.get_path(), cv2.IMREAD_GRAYSCALE)
+            img1 = file1.get_image()
+            img2 = file2.get_image()
 
             if img1 is None or img2 is None:
                 return 0.0

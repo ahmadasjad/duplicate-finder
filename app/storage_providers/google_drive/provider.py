@@ -4,6 +4,7 @@ import os
 import logging
 import time
 from typing import Dict, List, Optional
+import io
 
 import requests
 import streamlit as st
@@ -13,6 +14,8 @@ from ..base import BaseStorageProvider, ScanFilterOptions, BaseFile
 from ..exceptions import NoDuplicateException, NoFileFoundException
 from ...utils import get_thumbnail_from_image_data
 from .authenticator import GoogleAuthenticator
+from PIL import Image
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +163,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         # logger.debug('all_files collected: %d', len(all_files))
         # logger.debug(all_files)
 
-        return [GoogleDriveFile(f) for f in all_files]
+        return [GoogleDriveFile(drive=self.google_service, **f) for f in all_files]
 
     def _apply_file_filters(self, file_info, filters: ScanFilterOptions):
         """Apply filters to a file and return skip reason if any, else None"""
@@ -539,6 +542,10 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
 
 
 class GoogleDriveFile(BaseFile):
+    def __init__(self, *args, drive=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.drive = drive
+
     def get_id(self) -> str:
         return self.get('id', '')
 
@@ -575,6 +582,11 @@ class GoogleDriveFile(BaseFile):
         if isinstance(content, (bytes, bytearray)):
             return bytes(content)
         return None
+
+    def get_image(self):
+        data = self.drive.get_file_service().get_media(fileId=self.get_id()).execute()
+        img = Image.open(io.BytesIO(data)).convert('L')  # grayscale
+        return np.array(img)  # same type as LocalDrive
 
     def get_path(self) -> str:
         """Return a displayable path/identifier for this file.
