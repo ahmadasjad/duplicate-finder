@@ -10,9 +10,13 @@ from app.file_operations import is_file_shortcut, is_file_hidden, is_file_for_sy
 from app.utils import get_file_info
 from app.preview import preview_file_inline
 from app.similarity import SimilarityDetector, SimilarityConfig, SimilarityMethod
-from .base import BaseStorageProvider, ScanFilterOptions
+from .base import BaseStorageProvider, ScanFilterOptions, BaseFile
 
 logger = logging.getLogger(__name__)
+
+
+class LocalFile(BaseFile):
+    pass
 
 
 class LocalFileSystemProvider(BaseStorageProvider):
@@ -173,7 +177,12 @@ class LocalFileSystemProvider(BaseStorageProvider):
                 if not filters.include_subfolders and root != folder_path:
                     continue
 
-                all_files.append({'path': file_path, 'id': file_path})
+                # Python
+                lf = LocalFile({'path': file_path, 'id': file_path})
+                # logger.debug("scan_directory: appending file path=%s type=%s is_dict=%s repr=%s",
+                #             file_path, type(lf), isinstance(lf, dict), lf)
+                all_files.append(lf)
+
 
         return self.find_duplicates(all_files, filters, progress_bar=None)
 

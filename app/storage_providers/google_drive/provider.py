@@ -9,7 +9,7 @@ import requests
 import streamlit as st
 
 from .google_utils import extract_file_id_and_name, get_enriched_file_info, CREDENTIALS_FILE
-from ..base import BaseStorageProvider, ScanFilterOptions
+from ..base import BaseStorageProvider, ScanFilterOptions, BaseFile
 from ..exceptions import NoDuplicateException, NoFileFoundException
 from ...utils import get_thumbnail_from_image_data
 from .authenticator import GoogleAuthenticator
@@ -157,7 +157,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
                 all_files.extend(files)
                 if not page_token:
                     break
-        return all_files
+        return [GoogleDriveFile(f) for f in all_files]
 
     def _apply_file_filters(self, file_info, filters: ScanFilterOptions):
         """Apply filters to a file and return skip reason if any, else None"""
@@ -533,3 +533,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         except Exception as e:
             logger.error("Failed to create Google Drive shortcut: %s", str(e))
             return False
+
+
+class GoogleDriveFile(BaseFile):
+    pass

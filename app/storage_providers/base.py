@@ -148,5 +148,40 @@ class BaseStorageProvider(ABC):
 
         # Run similarity across remaining files
         similar_groups = self._find_duplicates_similar(all_files, filters, exact_groups)
+        logger.info("Found %d similar groups", len(similar_groups))
 
         return self._merge_exact_and_similar(exact_groups, similar_groups)
+
+
+class BaseFile(dict, ABC):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    # You can override __getitem__ etc. if you want to customize behavior,
+    # but default dict methods will already work perfectly.
+
+    # ✅ Example custom helpers
+    def get_keys(self):
+        return list(self.keys())
+
+    def get_values(self):
+        return list(self.values())
+
+    def get_items(self):
+        return list(self.items())
+
+    def find_by_value(self, value):
+        """Return list of keys matching the given value"""
+        return [k for k, v in self.items() if v == value]
+
+    def merge(self, other):
+        """Merge another dict or SmartDict"""
+        self.update(other)
+        return self
+
+    def to_dict(self):
+        """Return a plain dict copy (useful if further conversion needed)"""
+        return dict(self)
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}({super().__repr__()})"
