@@ -59,6 +59,18 @@ class DriveCache:
                 )
             """)
 
+            # Table for cached pairwise similarity scores between two files.
+            # We store file_a and file_b as the sorted pair so (a,b) == (b,a)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS similarity_cache (
+                    file_a TEXT NOT NULL,
+                    file_b TEXT NOT NULL,
+                    similarity REAL NOT NULL,
+                    timestamp INTEGER,
+                    PRIMARY KEY (file_a, file_b)
+                )
+            """)
+
     def get_cached_files(self, folder_id: str, recursive: bool, max_age_hours: int = 24):
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute(
@@ -239,11 +251,62 @@ class DriveCache:
                 (file_id, media_type, media_content, current_time)
             )
 
+    def get_similarity_score(self, file_a: str, file_b: str, max_age_hours: int = 24):
+        """Retrieve a cached similarity score for a pair of files if available and not expired.
+
+        Returns:
+            float | None
+        """
+        # Ensure ordering so (a,b) == (b,a)
+        a, b = sorted((str(file_a), str(file_b)))
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute(
+                    """
+                    SELECT similarity, timestamp
+                    FROM similarity_cache
+                    WHERE file_a = ? AND file_b = ?
+                    """,
+                    (a, b)
+                )
+                result = cursor.fetchone()
+                if result:
+                    similarity, timestamp = result
+                    age_hours = (time.time() - timestamp) / 3600
+                    if age_hours < max_age_hours:
+                        logger.debug("Cache hit for similarity %s-%s", a, b)
+                        return similarity
+                    else:
+                        # expired -> remove entry
+                        conn.execute("DELETE FROM similarity_cache WHERE file_a = ? AND file_b = ?", (a, b))
+        except Exception as e:
+            logger.exception("Failed to read similarity cache for %s-%s: %s", a, b, e)
+        return None
+
+    def cache_similarity_score(self, file_a: str, file_b: str, similarity: float):
+        """Store or update a cached similarity score for a pair of files."""
+        a, b = sorted((str(file_a), str(file_b)))
+        current_time = int(time.time())
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO similarity_cache
+                    (file_a, file_b, similarity, timestamp)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (a, b, float(similarity), current_time)
+                )
+                logger.debug("Cached similarity for %s-%s = %s", a, b, similarity)
+        except Exception as e:
+            logger.exception("Failed to write similarity cache for %s-%s: %s", a, b, e)
+
     def delete_file_cache(self, file_id: str):
         """Delete all cached entries related to a single file id.
 
         This removes rows from `file_details` and `media_storage` for the
-        provided file id. We intentionally do not attempt to update
+        provided file id. We also remove any similarity_cache rows where
+        the file participates. We intentionally do not attempt to update
         `file_cache` entries (which are folder-scoped lists) here because
         modifying the JSON stored there risks corruption; those folder
         caches will expire naturally.
@@ -252,6 +315,8 @@ class DriveCache:
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute("DELETE FROM file_details WHERE file_id = ?", (file_id,))
                 conn.execute("DELETE FROM media_storage WHERE file_id = ?", (file_id,))
+                # Remove any similarity cache entries involving this file
+                conn.execute("DELETE FROM similarity_cache WHERE file_a = ? OR file_b = ?", (file_id, file_id))
                 logger.debug("Deleted cache entries for file_id=%s", file_id)
         except Exception as e:
             logger.exception("Failed to delete cache for file %s: %s", file_id, e)

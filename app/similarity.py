@@ -54,6 +54,9 @@ class SimilarityDetector:
         self._image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff', '.webp'}
         self._text_extensions = {'.txt', '.md', '.py', '.js', '.html', '.css', '.json', '.xml', '.csv'}
 
+        from app.storage_providers.google_drive.cache_manager import DriveCache
+        self.cache_manager = DriveCache()
+
     def find_similar_files(self, files: List[dict]) -> Dict[str, List[dict]]:
         """
         Find similar files using configured similarity methods.
@@ -87,7 +90,7 @@ class SimilarityDetector:
                 if file2.get_id() in processed_files:
                     continue
 
-                similarity_score = self._calculate_similarity(file1, file2)
+                similarity_score = self.get_similarity_score(file1, file2)
                 if similarity_score >= self.config.threshold:
                     similar_files.append(file2)
                     processed_files.add(file2.get_id())
@@ -97,6 +100,23 @@ class SimilarityDetector:
                 similar_groups[group_id] = similar_files
 
         return similar_groups
+
+    def get_similarity_score(self, file1: dict, file2: dict) -> float:
+        """
+        Get the cached similarity score between two files, if available.
+
+        Returns:
+            Float similarity score or 0.0 if not found
+        """
+
+        existing_score = self.cache_manager.get_similarity_score(file1.get_id(), file2.get_id())
+        if existing_score is not None:
+            return float(existing_score)
+
+        similarity_score = self._calculate_similarity(file1, file2)
+        self.cache_manager.cache_similarity_score(file1.get_id(), file2.get_id(), similarity_score)
+
+        return similarity_score
 
     def _find_exact_duplicates(self, files: List[dict]) -> Dict[str, List[dict]]:
         """Find exact duplicates using MD5 hash."""
