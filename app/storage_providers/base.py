@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Dict, List
 from app.similarity import SimilarityDetector, SimilarityConfig, SimilarityMethod
+from app.storage_providers.exceptions import NoDuplicateException
 
 logger = logging.getLogger(__name__)
 

@@ -130,15 +130,15 @@ class SimilarityDetector:
         for method in self.config.methods:
             try:
                 if method == SimilarityMethod.HASH_PERCEPTUAL and self.config.enable_perceptual_hash:
-                    similarity = self._perceptual_hash_similarity(path1, path2)
+                    similarity = self._perceptual_hash_similarity(file1, file2)
                 elif method == SimilarityMethod.CONTENT_TEXT and self.config.enable_content_similarity:
-                    similarity = self._text_content_similarity(path1, path2)
+                    similarity = self._text_content_similarity(file1, file2)
                 elif method == SimilarityMethod.CONTENT_BINARY and self.config.enable_content_similarity:
-                    similarity = self._binary_content_similarity(path1, path2)
+                    similarity = self._binary_content_similarity(file1, file2)
                 elif method == SimilarityMethod.IMAGE_STRUCTURAL and self.config.enable_image_similarity:
-                    similarity = self._image_structural_similarity(path1, path2)
+                    similarity = self._image_structural_similarity(file1, file2)
                 elif method == SimilarityMethod.FILENAME_FUZZY and self.config.enable_filename_similarity:
-                    similarity = self._filename_similarity(path1, path2)
+                    similarity = self._filename_similarity(file1, file2)
                 else:
                     continue
 
@@ -171,8 +171,13 @@ class SimilarityDetector:
         hash2 = self._get_file_hash(path2)
         return hash1 and hash2 and hash1 == hash2
 
-    def _perceptual_hash_similarity(self, path1: str, path2: str) -> float:
+    def _perceptual_hash_similarity(self, file1: dict, file2: dict) -> float:
         """Calculate similarity using perceptual hashing for images."""
+        path1 = self.get_path(file1)
+        path2 = self.get_path(file2)
+        if not path1 or not path2:
+            return 0.0
+
         if not self._is_image_file(path1) or not self._is_image_file(path2):
             return 0.0
 
@@ -220,16 +225,21 @@ class SimilarityDetector:
             logger.debug(f"Error calculating perceptual hash for {image_path}: {e}")
             return None
 
-    def _text_content_similarity(self, path1: str, path2: str) -> float:
+    def _text_content_similarity(self, file1: dict, file2: dict) -> float:
         """Calculate similarity for text files using difflib."""
+        path1 = self.get_path(file1)
+        path2 = self.get_path(file2)
+        if not path1 or not path2:
+            return 0.0
+
         if not self._is_text_file(path1) or not self._is_text_file(path2):
             return 0.0
 
         try:
-            with open(path1, 'r', encoding='utf-8', errors='ignore') as f1:
-                content1 = f1.read()
-            with open(path2, 'r', encoding='utf-8', errors='ignore') as f2:
-                content2 = f2.read()
+            content1_bytes = self.get_file_content(file1) or b""
+            content2_bytes = self.get_file_content(file2) or b""
+            content1 = content1_bytes.decode('utf-8', errors='ignore')
+            content2 = content2_bytes.decode('utf-8', errors='ignore')
 
             # Use difflib to calculate similarity
             similarity = difflib.SequenceMatcher(None, content1, content2).ratio()
@@ -239,13 +249,11 @@ class SimilarityDetector:
             logger.debug(f"Error calculating text similarity: {e}")
             return 0.0
 
-    def _binary_content_similarity(self, path1: str, path2: str) -> float:
+    def _binary_content_similarity(self, file1: dict, file2: dict) -> float:
         """Calculate similarity for binary files using byte comparison."""
         try:
-            with open(path1, 'rb') as f1:
-                content1 = f1.read()
-            with open(path2, 'rb') as f2:
-                content2 = f2.read()
+            content1 = self.get_file_content(file1) or b""
+            content2 = self.get_file_content(file2) or b""
 
             # Simple byte-by-byte comparison
             if len(content1) != len(content2):
@@ -270,8 +278,13 @@ class SimilarityDetector:
             logger.debug(f"Error calculating binary similarity: {e}")
             return 0.0
 
-    def _image_structural_similarity(self, path1: str, path2: str) -> float:
+    def _image_structural_similarity(self, file1: dict, file2: dict) -> float:
         """Calculate structural similarity for images using SSIM."""
+        path1 = self.get_path(file1)
+        path2 = self.get_path(file2)
+        if not path1 or not path2:
+            return 0.0
+
         if not self._is_image_file(path1) or not self._is_image_file(path2):
             return 0.0
 
@@ -311,8 +324,10 @@ class SimilarityDetector:
             logger.debug(f"Error calculating image structural similarity: {e}")
             return 0.0
 
-    def _filename_similarity(self, path1: str, path2: str) -> float:
+    def _filename_similarity(self, file1: dict, file2: dict) -> float:
         """Calculate similarity based on filename."""
+        path1 = self.get_path(file1)
+        path2 = self.get_path(file2)
         name1 = os.path.basename(path1).lower()
         name2 = os.path.basename(path2).lower()
 
@@ -333,6 +348,25 @@ class SimilarityDetector:
         ext = os.path.splitext(file_path)[1].lower()
         return ext in self._text_extensions
 
+    def get_path(self, file: dict) -> Optional[str]:
+        """Retrieve the filesystem path from a file dict."""
+        if not isinstance(file, dict):
+            return None
+        # Standard representation uses 'path' key
+        return file.get('path')
+
+    def get_file_content(self, file: dict) -> Optional[bytes]:
+        """Return file content as bytes. Reads from path obtained via get_path."""
+        path = self.get_path(file)
+        if not path:
+            return None
+        try:
+            with open(path, 'rb') as f:
+                return f.read()
+        except (OSError, IOError) as e:
+            logger.debug(f"Error reading file content for {path}: {e}")
+            return None
+
     def get_similarity_explanation(self, file1: dict, file2: dict) -> str:
         """Get explanation of why two files are considered similar."""
         path1, path2 = file1['path'], file2['path']
@@ -345,22 +379,22 @@ class SimilarityDetector:
         for method in self.config.methods:
             try:
                 if method == SimilarityMethod.HASH_PERCEPTUAL and self.config.enable_perceptual_hash:
-                    similarity = self._perceptual_hash_similarity(path1, path2)
+                    similarity = self._perceptual_hash_similarity(file1, file2)
                     if similarity >= self.config.threshold:
                         explanations.append(f"Visual similarity: {similarity:.1%}")
 
                 elif method == SimilarityMethod.CONTENT_TEXT and self.config.enable_content_similarity:
-                    similarity = self._text_content_similarity(path1, path2)
+                    similarity = self._text_content_similarity(file1, file2)
                     if similarity >= self.config.threshold:
                         explanations.append(f"Text content similarity: {similarity:.1%}")
 
                 elif method == SimilarityMethod.IMAGE_STRUCTURAL and self.config.enable_image_similarity:
-                    similarity = self._image_structural_similarity(path1, path2)
+                    similarity = self._image_structural_similarity(file1, file2)
                     if similarity >= self.config.threshold:
                         explanations.append(f"Image structure similarity: {similarity:.1%}")
 
                 elif method == SimilarityMethod.FILENAME_FUZZY and self.config.enable_filename_similarity:
-                    similarity = self._filename_similarity(path1, path2)
+                    similarity = self._filename_similarity(file1, file2)
                     if similarity >= self.config.threshold:
                         explanations.append(f"Filename similarity: {similarity:.1%}")
 
