@@ -540,3 +540,43 @@ class GoogleDriveFile(BaseFile):
         file_path = self.get('name', '')
         ext = os.path.splitext(file_path)[1].lower()
         return ext
+
+    def get_file_hash(self) -> str:
+        """Return MD5 if available, otherwise a deterministic fallback like provider.group_by_hash."""
+        # Prefer explicit MD5 checksum provided by Drive metadata
+        md5 = self.get('md5Checksum') or self.get('md5_hash') or self.get('md5')
+        if md5:
+            return str(md5)
+        # Fallback: use name+size so grouping logic remains consistent with provider
+        name = self.get('name', '')
+        size = int(self.get('size', 0))
+        return f"fallback_{name}_{size}"
+
+    def get_name(self, with_extension: bool = True) -> str:
+        """Return display name for the Drive file."""
+        name = self.get('name', '') or os.path.basename(self.get('webViewLink', '') or '')
+        if not with_extension:
+            name = os.path.splitext(name)[0]
+        return name
+
+    def get_content(self) -> Optional[bytes]:
+        """GoogleDriveFile does not have content cached by default.
+
+        Returning None avoids attempting content-based comparisons unless provider
+        or caller has populated a 'content' key on the object.
+        """
+        content = self.get('content')
+        if isinstance(content, (bytes, bytearray)):
+            return bytes(content)
+        return None
+
+    def get_path(self) -> str:
+        """Return a displayable path/identifier for this file.
+
+        Prefer the webViewLink when present; otherwise return a gdrive://id scheme.
+        """
+        link = self.get('webViewLink') or self.get('alternateLink') or self.get('webContentLink')
+        if link:
+            return link
+        file_id = self.get('id', '')
+        return f"gdrive://{file_id}" if file_id else self.get('name', '')
