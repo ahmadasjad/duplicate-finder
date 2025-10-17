@@ -21,6 +21,8 @@ SCOPES = [
     ]
 
 class GoogleService():
+    fresh_media_hit_count = 0
+
     def __init__(self):
         self.authenticated = False
         self.credentials = None
@@ -424,7 +426,7 @@ The authorization code format is incorrect.
 
         if media_content is not None:
             logger.debug("Media content found in cache for file %s", file_id)
-            logger.debug("media_content: %s", media_content[:100])  # Log first 100 bytes
+            # logger.debug("media_content: %s", media_content[:100])  # Log first 100 bytes
             return media_content
 
         try:
@@ -447,6 +449,8 @@ The authorization code format is incorrect.
                 media_type=media_type,
                 media_content=media_content
             )
+            self.fresh_media_hit_count += 1
+            logger.debug("Total fresh media hits: %d", self.fresh_media_hit_count)
 
             return media_content
 

@@ -584,7 +584,30 @@ class GoogleDriveFile(BaseFile):
         return None
 
     def get_image(self):
-        data = self.drive.get_file_service().get_media(fileId=self.get_id()).execute()
+        """Return image as a grayscale numpy array, using cache when available."""
+        file_id = self.get_id()
+        data = None
+
+        # Try to get media via GoogleService helper (this checks cache first)
+        try:
+            data = self.drive.get_file_media(file_id=file_id)
+        except Exception:
+            logger.warning("Failed to get media via helper for file %s", file_id, exc_info=True)
+            # If helper fails, fall back to direct API call and cache the result
+            # try:
+            #     data = self.drive.get_file_service().get_media(fileId=file_id).execute()
+            #     try:
+            #         # Cache the fetched media (use file_id as cache key)
+            #         self.drive.drive_cache.cache_media(file_id, None, data)
+            #     except Exception:
+            #         logger.debug("Failed to cache media for file %s", file_id, exc_info=True)
+            # except Exception as e:
+            #     logger.exception("Failed to fetch image %s: %s", file_id, e)
+            #     raise
+
+        if not data:
+            raise FileNotFoundError(f"Could not fetch image {file_id}")
+
         img = Image.open(io.BytesIO(data)).convert('L')  # grayscale
         return np.array(img)  # same type as LocalDrive
 
