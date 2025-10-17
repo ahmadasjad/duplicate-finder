@@ -267,15 +267,32 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             # Show processing status
             status_placeholder.info(f"Found {total_files} files. Analyzing for duplicates...")
 
-            duplicates = self.find_duplicates(all_files, filters, progress_bar)
+            exact_groups = self.find_duplicates(all_files, filters, progress_bar)
+
+            # If similarity is not enabled or threshold is exact, return exact groups
+            if not (filters.enable_similarity_detection and filters.similarity_threshold < 1.0):
+                return exact_groups
+
+            # Run similarity across remaining files
+            similar_groups = self._find_duplicates_similar(all_files, filters, exact_groups)
+
+            # Merge both exact and similar groups into one dict with unique group ids
+            merged: dict = {}
+            idx = 0
+            for group in exact_groups.values():
+                merged[f"group_{idx}"] = group
+                idx += 1
+            for group in similar_groups.values():
+                merged[f"group_{idx}"] = group
+                idx += 1
 
             # # Show scan summary
             # log_scan_summary(total_files, processed_files, skipped_no_hash, skipped_filters, duplicates, file_dict)
 
-            if not duplicates:
+            if not merged:
                 raise NoDuplicateException("No duplicate files found in the selected folder.")
 
-            return duplicates
+            return merged
         except (NoDuplicateException, NoFileFoundException) as e:
             raise e # forward the exception
         except Exception as e:
