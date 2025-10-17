@@ -306,17 +306,52 @@ class DriveCache:
 
         This removes rows from `file_details` and `media_storage` for the
         provided file id. We also remove any similarity_cache rows where
-        the file participates. We intentionally do not attempt to update
-        `file_cache` entries (which are folder-scoped lists) here because
-        modifying the JSON stored there risks corruption; those folder
-        caches will expire naturally.
+        the file participates. Additionally, remove any references to this
+        file from folder-scoped `file_cache` entries and remove thumbnail
+        media entries (stored with a "_thumb" suffix).
         """
         try:
             with sqlite3.connect(self.db_path) as conn:
-                conn.execute("DELETE FROM file_details WHERE file_id = ?", (file_id,))
-                conn.execute("DELETE FROM media_storage WHERE file_id = ?", (file_id,))
+                cursor = conn.cursor()
+
+                # Delete file details and media for the exact file_id
+                cursor.execute("DELETE FROM file_details WHERE file_id = ?", (file_id,))
+                cursor.execute("DELETE FROM media_storage WHERE file_id = ?", (file_id,))
+
+                # Also delete thumbnail media if present (cached under file_id + "_thumb")
+                thumb_id = f"{file_id}_thumb"
+                cursor.execute("DELETE FROM media_storage WHERE file_id = ?", (thumb_id,))
+
                 # Remove any similarity cache entries involving this file
-                conn.execute("DELETE FROM similarity_cache WHERE file_a = ? OR file_b = ?", (file_id, file_id))
-                logger.debug("Deleted cache entries for file_id=%s", file_id)
+                cursor.execute("DELETE FROM similarity_cache WHERE file_a = ? OR file_b = ?", (file_id, file_id))
+
+                # Remove any references to this file from folder-scoped file_cache entries.
+                # Each file_cache.files_data is a JSON list of file dicts; remove any items
+                # whose 'id' equals the file_id being deleted.
+                try:
+                    cursor.execute("SELECT folder_id, is_recursive, files_data FROM file_cache")
+                    rows = cursor.fetchall()
+                    for folder_id, is_recursive, files_data in rows:
+                        try:
+                            files_list = json.loads(files_data or "[]")
+                        except Exception:
+                            # If parsing fails, skip this row
+                            continue
+
+                        new_list = [f for f in files_list if str(f.get('id')) != str(file_id)]
+                        if len(new_list) != len(files_list):
+                            # Update the cache row with the filtered list and refresh timestamp
+                            cursor.execute(
+                                """
+                                INSERT OR REPLACE INTO file_cache (folder_id, is_recursive, files_data, timestamp)
+                                VALUES (?, ?, ?, ?)
+                                """,
+                                (folder_id, int(is_recursive), json.dumps(new_list), int(time.time()))
+                            )
+                except Exception as inner_exc:
+                    logger.debug("Failed to prune file_cache entries for %s: %s", file_id, inner_exc, exc_info=True)
+
+                conn.commit()
+                logger.debug("Deleted cache entries for file_id=%s (including media, thumbs, similarity and file_cache refs)", file_id)
         except Exception as e:
             logger.exception("Failed to delete cache for file %s: %s", file_id, e)
