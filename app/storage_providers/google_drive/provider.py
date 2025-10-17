@@ -193,7 +193,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
 
         return skipped_no_hash
 
-    def find_duplicates(self, all_files: list[dict], filters: ScanFilterOptions, progress_bar) -> Dict:
+    def _find_duplicates_exact(self, all_files: list[dict], filters: ScanFilterOptions, progress_bar) -> Dict:
         file_dict: dict[str, list[dict]] = {}
         skipped_no_hash = 0
         skipped_filters = 0
@@ -267,7 +267,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             # Show processing status
             status_placeholder.info(f"Found {total_files} files. Analyzing for duplicates...")
 
-            exact_groups = self.find_duplicates(all_files, filters, progress_bar)
+            exact_groups = self._find_duplicates_exact(all_files, filters, progress_bar)
 
             # If similarity is not enabled or threshold is exact, return exact groups
             if not (filters.enable_similarity_detection and filters.similarity_threshold < 1.0):
