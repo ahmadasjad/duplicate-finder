@@ -3,7 +3,7 @@
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Dict, List
+from typing import Dict, List, Optional
 from app.similarity import SimilarityDetector, SimilarityConfig, SimilarityMethod
 from app.storage_providers.exceptions import NoDuplicateException
 
@@ -156,13 +156,35 @@ class BaseStorageProvider(ABC):
 class BaseFile(dict, ABC):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
-    # You can override __getitem__ etc. if you want to customize behavior,
-    # but default dict methods will already work perfectly.
+        self._image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff', '.webp'}
+        self._text_extensions = {'.txt', '.md', '.py', '.js', '.html', '.css', '.json', '.xml', '.csv'}
 
     @abstractmethod
-    def is_image_file(self) -> bool:
+    def get_extension(self) -> str:
         pass
+
+    @abstractmethod
+    def get_file_hash(self) -> str:
+        pass
+
+    @abstractmethod
+    def get_name(self, with_extension: bool = True) -> str:
+        pass
+
+    @abstractmethod
+    def get_content(self) -> Optional[bytes]:
+        pass
+
+    def is_image_file(self) -> bool:
+        """Check if file is an image."""
+        return self.get_extension() in self._image_extensions
+
+    def is_text_file(self) -> bool:
+        """Check if file is a text file."""
+        return self.get_extension() in self._text_extensions
+
+    def get_path(self) -> str:
+        return self.get('path', '')
 
     # ✅ Example custom helpers
     def get_keys(self):

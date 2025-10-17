@@ -3,7 +3,7 @@
 import os
 import hashlib
 import logging
-from typing import Dict, List, Union
+from typing import Dict, List, Tuple, Union, Optional, Set
 import streamlit as st
 
 from app.file_operations import is_file_shortcut, is_file_hidden, is_file_for_system
@@ -18,14 +18,37 @@ logger = logging.getLogger(__name__)
 class LocalFile(BaseFile):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff', '.webp'}
-        self._text_extensions = {'.txt', '.md', '.py', '.js', '.html', '.css', '.json', '.xml', '.csv'}
 
-    def is_image_file(self) -> bool:
-        """Check if file is an image."""
+    def get_extension(self) -> str:
         file_path = self.get('path', '')
         ext = os.path.splitext(file_path)[1].lower()
-        return ext in self._image_extensions
+        return ext
+
+    def get_name(self, with_extension: bool = True) -> str:
+        base_name = os.path.basename(self.get_path())
+        if not with_extension:
+            base_name = os.path.splitext(base_name)[0]
+        return base_name
+
+    def get_file_hash(self) -> Optional[str]:
+        """Compute MD5 hash of a file."""
+        try:
+            hash_obj = hashlib.md5()
+            with open(self.get_path(), 'rb') as f:
+                for chunk in iter(lambda: f.read(4096), b""):
+                    hash_obj.update(chunk)
+            return hash_obj.hexdigest()
+        except (OSError, IOError):
+            return None
+
+    def get_content(self) -> Optional[bytes]:
+        """Return file content as bytes. Reads from path obtained via get_path."""
+        try:
+            with open(self.get_path(), 'rb') as f:
+                return f.read()
+        except (OSError, IOError) as e:
+            logger.debug(f"Error reading file content for {self.get_path()}: {e}")
+            return None
 
 
 class LocalFileSystemProvider(BaseStorageProvider):

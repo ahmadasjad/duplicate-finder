@@ -74,23 +74,23 @@ class SimilarityDetector:
         processed_files = set()
 
         for i, file1 in enumerate(files):
-            if file1['path'] in processed_files:
+            if file1.get_path() in processed_files:
                 continue
 
             # Start a new similarity group
             group_id = f"group_{i}"
             similar_files = [file1]
-            processed_files.add(file1['path'])
+            processed_files.add(file1.get_path())
 
             # Compare with remaining files
             for file2 in files[i+1:]:
-                if file2['path'] in processed_files:
+                if file2.get_path() in processed_files:
                     continue
 
                 similarity_score = self._calculate_similarity(file1, file2)
                 if similarity_score >= self.config.threshold:
                     similar_files.append(file2)
-                    processed_files.add(file2['path'])
+                    processed_files.add(file2.get_path())
 
             # Only keep groups with more than one file
             if len(similar_files) > 1:
@@ -103,7 +103,7 @@ class SimilarityDetector:
         file_dict = {}
 
         for file in files:
-            file_hash = self._get_file_hash(file['path'])
+            file_hash = file.get_file_hash()
             if file_hash:
                 if file_hash not in file_dict:
                     file_dict[file_hash] = []
@@ -118,10 +118,9 @@ class SimilarityDetector:
         Returns:
             Float between 0.0 and 1.0 representing similarity
         """
-        path1, path2 = file1['path'], file2['path']
 
         # Quick check: if files have same hash, they're identical
-        if self._files_have_same_hash(path1, path2):
+        if self._files_have_same_hash(file1, file2):
             return 1.0
 
         max_similarity = 0.0
@@ -154,36 +153,21 @@ class SimilarityDetector:
 
         return max_similarity
 
-    def _get_file_hash(self, file_path: str) -> Optional[str]:
-        """Compute MD5 hash of a file."""
-        try:
-            hash_obj = hashlib.md5()
-            with open(file_path, 'rb') as f:
-                for chunk in iter(lambda: f.read(4096), b""):
-                    hash_obj.update(chunk)
-            return hash_obj.hexdigest()
-        except (OSError, IOError):
-            return None
-
-    def _files_have_same_hash(self, path1: str, path2: str) -> bool:
+    def _files_have_same_hash(self, file1: dict, file2: dict) -> bool:
         """Check if two files have the same MD5 hash."""
-        hash1 = self._get_file_hash(path1)
-        hash2 = self._get_file_hash(path2)
+        hash1 = file1.get_file_hash()
+        hash2 = file2.get_file_hash()
         return hash1 and hash2 and hash1 == hash2
 
     def _perceptual_hash_similarity(self, file1: dict, file2: dict) -> float:
         """Calculate similarity using perceptual hashing for images."""
-        path1 = self.get_path(file1)
-        path2 = self.get_path(file2)
-        if not path1 or not path2:
-            return 0.0
 
         if not file1.is_image_file() or not file2.is_image_file():
             return 0.0
 
         try:
-            hash1 = self._calculate_perceptual_hash(path1)
-            hash2 = self._calculate_perceptual_hash(path2)
+            hash1 = self._calculate_perceptual_hash(file1)
+            hash2 = self._calculate_perceptual_hash(file2)
 
             if hash1 is None or hash2 is None:
                 return 0.0
@@ -198,8 +182,9 @@ class SimilarityDetector:
             logger.debug(f"Error calculating perceptual hash similarity: {e}")
             return 0.0
 
-    def _calculate_perceptual_hash(self, image_path: str) -> Optional[int]:
+    def _calculate_perceptual_hash(self, image_file: dict) -> Optional[int]:
         """Calculate perceptual hash of an image."""
+        image_path = image_file.get_path()
         try:
             # Load image using OpenCV
             img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
@@ -227,17 +212,12 @@ class SimilarityDetector:
 
     def _text_content_similarity(self, file1: dict, file2: dict) -> float:
         """Calculate similarity for text files using difflib."""
-        path1 = self.get_path(file1)
-        path2 = self.get_path(file2)
-        if not path1 or not path2:
-            return 0.0
-
-        if not self._is_text_file(path1) or not self._is_text_file(path2):
+        if not file1.is_text_file() or not file2.is_text_file():
             return 0.0
 
         try:
-            content1_bytes = self.get_file_content(file1) or b""
-            content2_bytes = self.get_file_content(file2) or b""
+            content1_bytes = file1.get_content() or b""
+            content2_bytes = file2.get_content() or b""
             content1 = content1_bytes.decode('utf-8', errors='ignore')
             content2 = content2_bytes.decode('utf-8', errors='ignore')
 
@@ -252,8 +232,8 @@ class SimilarityDetector:
     def _binary_content_similarity(self, file1: dict, file2: dict) -> float:
         """Calculate similarity for binary files using byte comparison."""
         try:
-            content1 = self.get_file_content(file1) or b""
-            content2 = self.get_file_content(file2) or b""
+            content1 = file1.get_content() or b""
+            content2 = file2.get_content() or b""
 
             # Simple byte-by-byte comparison
             if len(content1) != len(content2):
@@ -280,18 +260,14 @@ class SimilarityDetector:
 
     def _image_structural_similarity(self, file1: dict, file2: dict) -> float:
         """Calculate structural similarity for images using SSIM."""
-        path1 = self.get_path(file1)
-        path2 = self.get_path(file2)
-        if not path1 or not path2:
-            return 0.0
 
         if not file1.is_image_file() or not file2.is_image_file():
             return 0.0
 
         try:
             # Load images
-            img1 = cv2.imread(path1, cv2.IMREAD_GRAYSCALE)
-            img2 = cv2.imread(path2, cv2.IMREAD_GRAYSCALE)
+            img1 = cv2.imread(file1.get_path(), cv2.IMREAD_GRAYSCALE)
+            img2 = cv2.imread(file2.get_path(), cv2.IMREAD_GRAYSCALE)
 
             if img1 is None or img2 is None:
                 return 0.0
@@ -326,48 +302,17 @@ class SimilarityDetector:
 
     def _filename_similarity(self, file1: dict, file2: dict) -> float:
         """Calculate similarity based on filename."""
-        path1 = self.get_path(file1)
-        path2 = self.get_path(file2)
-        name1 = os.path.basename(path1).lower()
-        name2 = os.path.basename(path2).lower()
-
-        # Remove extensions for comparison
-        name1 = os.path.splitext(name1)[0]
-        name2 = os.path.splitext(name2)[0]
+        name1 = file1.get_name(with_extension=False).lower()
+        name2 = file2.get_name(with_extension=False).lower()
 
         similarity = difflib.SequenceMatcher(None, name1, name2).ratio()
         return similarity
 
-    def _is_text_file(self, file_path: str) -> bool:
-        """Check if file is a text file."""
-        ext = os.path.splitext(file_path)[1].lower()
-        return ext in self._text_extensions
-
-    def get_path(self, file: dict) -> Optional[str]:
-        """Retrieve the filesystem path from a file dict."""
-        if not isinstance(file, dict):
-            return None
-        # Standard representation uses 'path' key
-        return file.get('path')
-
-    def get_file_content(self, file: dict) -> Optional[bytes]:
-        """Return file content as bytes. Reads from path obtained via get_path."""
-        path = self.get_path(file)
-        if not path:
-            return None
-        try:
-            with open(path, 'rb') as f:
-                return f.read()
-        except (OSError, IOError) as e:
-            logger.debug(f"Error reading file content for {path}: {e}")
-            return None
-
     def get_similarity_explanation(self, file1: dict, file2: dict) -> str:
         """Get explanation of why two files are considered similar."""
-        path1, path2 = file1['path'], file2['path']
         explanations = []
 
-        if self._files_have_same_hash(path1, path2):
+        if self._files_have_same_hash(file1, file2):
             explanations.append("Identical content (same hash)")
             return "; ".join(explanations)
 
