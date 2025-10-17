@@ -112,3 +112,23 @@ class BaseStorageProvider(ABC):
         detector = SimilarityDetector(similarity_config)
         # SimilarityDetector expects entries with 'path' key
         return detector.find_similar_files(filtered_files)
+
+    def _merge_exact_and_similar(self, exact_groups: dict, similar_groups: dict) -> dict:
+        """Merge exact and similar duplicate groups into a single dictionary."""
+        merged = {}
+        idx = 1
+
+        # Add exact groups first
+        for group in exact_groups.values():
+            merged[f"group_{idx}"] = group
+            idx += 1
+
+        # Add similar groups next
+        for group in similar_groups.values():
+            merged[f"group_{idx}"] = group
+            idx += 1
+
+        if not merged:
+            raise NoDuplicateException("No duplicate files found in the selected folder.")
+
+        return merged

@@ -185,17 +185,7 @@ class LocalFileSystemProvider(BaseStorageProvider):
         # Run similarity across remaining files
         similar_groups = self._find_duplicates_similar(all_files, filters, exact_groups)
 
-        # Merge both exact and similar groups into one dict with unique group ids
-        merged: dict = {}
-        idx = 0
-        for group in exact_groups.values():
-            merged[f"group_{idx}"] = group
-            idx += 1
-        for group in similar_groups.values():
-            merged[f"group_{idx}"] = group
-            idx += 1
-
-        return merged
+        return self._merge_exact_and_similar(exact_groups, similar_groups)
 
     def delete_files(self, files: List[dict]) -> bool:
         """Delete selected files"""
