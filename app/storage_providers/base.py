@@ -89,3 +89,26 @@ class BaseStorageProvider(ABC):
             A formatted success message string
         """
         return f"Found {duplicate_groups} groups of duplicates."
+
+    def _find_duplicates_similar(self, all_files: List[dict], filters: ScanFilterOptions, exact_groups) -> dict:
+        """Run SimilarityDetector on provided file entries and return similar groups."""
+        logger.info("Using similarity detection with threshold: %s", filters.similarity_threshold)
+
+        # Remove all but one file from each exact group from all_files
+        exact_file_paths = set()
+        for group in exact_groups.values():
+            # Keep the first file, remove the rest
+            for file_info in group[1:]:
+                exact_file_paths.add(file_info['path'])
+        filtered_files = [f for f in all_files if f['path'] not in exact_file_paths]
+
+        similarity_config = SimilarityConfig(
+            threshold=filters.similarity_threshold,
+            enable_perceptual_hash=filters.enable_perceptual_hash,
+            enable_content_similarity=filters.enable_content_similarity,
+            enable_image_similarity=filters.enable_image_similarity,
+            enable_filename_similarity=filters.enable_filename_similarity
+        )
+        detector = SimilarityDetector(similarity_config)
+        # SimilarityDetector expects entries with 'path' key
+        return detector.find_similar_files(filtered_files)
