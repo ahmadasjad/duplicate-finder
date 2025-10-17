@@ -126,7 +126,7 @@ class LocalFileSystemProvider(BaseStorageProvider):
         except (OSError, IOError):
             return None
 
-    def _find_duplicates_exact(self, all_files: List[dict]) -> dict:
+    def _find_duplicates_exact(self, all_files: List[dict], filters: ScanFilterOptions, progress_bar = None) -> dict:
         """Find exact duplicates by MD5 and return (exact_groups, remaining_files)."""
         file_dict: dict[str, list[dict]] = {}
         for file_info in all_files:
@@ -175,17 +175,7 @@ class LocalFileSystemProvider(BaseStorageProvider):
 
                 all_files.append({'path': file_path, 'id': file_path})
 
-        # First: exact duplicate detection
-        exact_groups = self._find_duplicates_exact(all_files)
-
-        # If similarity is not enabled or threshold is exact, return exact groups
-        if not (filters.enable_similarity_detection and filters.similarity_threshold < 1.0):
-            return exact_groups
-
-        # Run similarity across remaining files
-        similar_groups = self._find_duplicates_similar(all_files, filters, exact_groups)
-
-        return self._merge_exact_and_similar(exact_groups, similar_groups)
+        return self.find_duplicates(all_files, filters, progress_bar=None)
 
     def delete_files(self, files: List[dict]) -> bool:
         """Delete selected files"""

@@ -1,9 +1,12 @@
 """Base class for storage providers."""
 
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Dict, List
+from app.similarity import SimilarityDetector, SimilarityConfig, SimilarityMethod
 
+logger = logging.getLogger(__name__)
 
 @dataclass
 class ScanFilterOptions:
@@ -132,3 +135,17 @@ class BaseStorageProvider(ABC):
             raise NoDuplicateException("No duplicate files found in the selected folder.")
 
         return merged
+
+    def find_duplicates(self, all_files: List[dict], filters: ScanFilterOptions, progress_bar = None) -> Dict:
+        """Find duplicate files in the storage provider."""
+
+        exact_groups = self._find_duplicates_exact(all_files, filters, progress_bar=progress_bar)
+
+        # If similarity is not enabled or threshold is exact, return exact groups
+        if not (filters.enable_similarity_detection and filters.similarity_threshold < 1.0):
+            return exact_groups
+
+        # Run similarity across remaining files
+        similar_groups = self._find_duplicates_similar(all_files, filters, exact_groups)
+
+        return self._merge_exact_and_similar(exact_groups, similar_groups)
