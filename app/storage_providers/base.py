@@ -102,9 +102,9 @@ class BaseStorageProvider(ABC):
         exact_file_paths = set()
         for group in exact_groups.values():
             # Keep the first file, remove the rest
-            for file_info in group[1:]:
-                exact_file_paths.add(file_info['path'])
-        filtered_files = [f for f in all_files if f['path'] not in exact_file_paths]
+            for file in group[1:]:
+                exact_file_paths.add(file.get_id())
+        filtered_files = [f for f in all_files if f.get_id() not in exact_file_paths]
 
         similarity_config = SimilarityConfig(
             threshold=filters.similarity_threshold,
@@ -158,6 +158,10 @@ class BaseFile(dict, ABC):
         super().__init__(*args, **kwargs)
         self._image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff', '.webp'}
         self._text_extensions = {'.txt', '.md', '.py', '.js', '.html', '.css', '.json', '.xml', '.csv'}
+
+    @abstractmethod
+    def get_id() -> str:
+        pass
 
     @abstractmethod
     def get_extension(self) -> str:

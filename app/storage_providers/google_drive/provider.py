@@ -3,7 +3,7 @@
 import os
 import logging
 import time
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import requests
 import streamlit as st
@@ -157,6 +157,9 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
                 all_files.extend(files)
                 if not page_token:
                     break
+        # logger.debug('all_files collected: %d', len(all_files))
+        # logger.debug(all_files)
+
         return [GoogleDriveFile(f) for f in all_files]
 
     def _apply_file_filters(self, file_info, filters: ScanFilterOptions):
@@ -536,6 +539,9 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
 
 
 class GoogleDriveFile(BaseFile):
+    def get_id(self) -> str:
+        return self.get('id', '')
+
     def get_extension(self) -> str:
         file_path = self.get('name', '')
         ext = os.path.splitext(file_path)[1].lower()

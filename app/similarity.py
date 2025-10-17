@@ -74,23 +74,23 @@ class SimilarityDetector:
         processed_files = set()
 
         for i, file1 in enumerate(files):
-            if file1.get_path() in processed_files:
+            if file1.get_id() in processed_files:
                 continue
 
             # Start a new similarity group
             group_id = f"group_{i}"
             similar_files = [file1]
-            processed_files.add(file1.get_path())
+            processed_files.add(file1.get_id())
 
             # Compare with remaining files
             for file2 in files[i+1:]:
-                if file2.get_path() in processed_files:
+                if file2.get_id() in processed_files:
                     continue
 
                 similarity_score = self._calculate_similarity(file1, file2)
                 if similarity_score >= self.config.threshold:
                     similar_files.append(file2)
-                    processed_files.add(file2.get_path())
+                    processed_files.add(file2.get_id())
 
             # Only keep groups with more than one file
             if len(similar_files) > 1:

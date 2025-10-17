@@ -19,6 +19,9 @@ class LocalFile(BaseFile):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+    def get_id(self) -> str:
+        return self.get('path', '')
+
     def get_extension(self) -> str:
         file_path = self.get('path', '')
         ext = os.path.splitext(file_path)[1].lower()
