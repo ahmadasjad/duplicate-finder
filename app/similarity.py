@@ -57,6 +57,10 @@ class SimilarityDetector:
         from app.storage_providers.google_drive.cache_manager import DriveCache
         self.cache_manager = DriveCache()
 
+        # Performance optimization: Cache feature vectors to avoid recomputation
+        self._feature_cache = {}
+        self._optimization_threshold = 100  # Use optimized algorithm for large file sets
+
     def find_similar_files(self, files: List[dict]) -> Dict[str, List[dict]]:
         """
         Find similar files using configured similarity methods.
@@ -80,6 +84,27 @@ class SimilarityDetector:
             logger.info("Exact duplicate detection completed in %.2f seconds", elapsed)
             return result
 
+        # Clear feature cache for new detection run
+        self._feature_cache.clear()
+
+        # Use optimized algorithm for large file sets
+        if len(files) > self._optimization_threshold:
+            logger.info("Using optimized similarity detection for %d files", len(files))
+            result = self._find_similar_files_optimized(files)
+        else:
+            logger.info("Using standard similarity detection for %d files", len(files))
+            result = self._find_similar_files_standard(files)
+
+        elapsed = time.time() - start_time
+        total_groups = len(result)
+        total_files = sum(len(group) for group in result.values())
+        logger.info("Similarity detection completed in %.2f seconds: %d groups, %d files",
+                   elapsed, total_groups, total_files)
+
+        return result
+
+    def _find_similar_files_standard(self, files: List[dict]) -> Dict[str, List[dict]]:
+        """Standard O(n²) similarity detection for small file sets."""
         import time
         start_time = time.time()
 
@@ -116,6 +141,174 @@ class SimilarityDetector:
         logger.debug("Standard detection: %d comparisons in %.3f seconds", comparisons_made, elapsed)
 
         return similar_groups
+
+    def _find_similar_files_optimized(self, files: List[dict]) -> Dict[str, List[dict]]:
+        """
+        Optimized similarity detection using clustering and feature vector caching.
+        Reduces O(n²) complexity by grouping files by type and using efficient comparisons.
+        """
+        logger.info("Starting optimized similarity detection")
+
+        # Group files by type for more efficient comparison
+        image_files = [f for f in files if f.is_image_file()]
+        text_files = [f for f in files if f.is_text_file()]
+        other_files = [f for f in files if not f.is_image_file() and not f.is_text_file()]
+
+        logger.debug("File distribution - Images: %d, Text: %d, Other: %d",
+                    len(image_files), len(text_files), len(other_files))
+
+        similar_groups = {}
+        group_index = 1
+
+        # Process each file type group separately
+        for file_group, group_name in [(image_files, "images"), (text_files, "text"), (other_files, "other")]:
+            if len(file_group) < 2:
+                continue
+
+            logger.debug("Processing %s files: %d", group_name, len(file_group))
+
+            # Use clustering for large groups
+            if len(file_group) > self._optimization_threshold // 3:
+                group_results = self._find_similar_clustered(file_group, group_name)
+            else:
+                group_results = self._find_similar_files_standard(file_group)
+
+            # Merge results
+            for group in group_results.values():
+                if len(group) > 1:
+                    similar_groups[f"group_{group_index}"] = group
+                    group_index += 1
+
+        return similar_groups
+
+    def _find_similar_clustered(self, files: List[dict], file_type: str) -> Dict[str, List[dict]]:
+        """
+        Use clustering-based approach for large file sets.
+        Groups files by features first, then compares within clusters.
+        """
+        logger.info("Using clustering for %d %s files", len(files), file_type)
+
+        # Extract feature vectors for all files
+        feature_vectors = []
+        file_to_vector = {}
+
+        for file in files:
+            vector = self._get_feature_vector(file, file_type)
+            if vector is not None:
+                feature_vectors.append(vector)
+                file_to_vector[file.get_id()] = vector
+
+        if len(feature_vectors) < 2:
+            return {}
+
+        # Use simple clustering based on feature similarity
+        clusters = self._cluster_by_features(files, file_to_vector, file_type)
+
+        # Find similar files within each cluster
+        similar_groups = {}
+        cluster_index = 1
+
+        for cluster_files in clusters:
+            if len(cluster_files) < 2:
+                continue
+
+            # Use standard comparison within cluster (smaller n)
+            cluster_results = self._find_similar_files_standard(cluster_files)
+
+            for group in cluster_results.values():
+                if len(group) > 1:
+                    similar_groups[f"cluster_{cluster_index}"] = group
+                    cluster_index += 1
+
+        return similar_groups
+
+    def _get_feature_vector(self, file: dict, file_type: str) -> Optional[List[float]]:
+        """Extract feature vector for clustering based on file type."""
+        cache_key = f"{file.get_id()}_{file_type}"
+
+        if cache_key in self._feature_cache:
+            return self._feature_cache[cache_key]
+
+        try:
+            if file_type == "images" and file.is_image_file():
+                # Use perceptual hash as feature vector
+                phash = self._calculate_perceptual_hash(file)
+                if phash is not None:
+                    # Convert hash to binary feature vector
+                    vector = [(phash >> i) & 1 for i in range(64)]
+                    self._feature_cache[cache_key] = vector
+                    return vector
+
+            elif file_type == "text" and file.is_text_file():
+                # Use text content features
+                content = file.get_content()
+                if content:
+                    text = content.decode('utf-8', errors='ignore')
+                    # Simple features: length, line count, avg line length
+                    lines = text.split('\n')
+                    vector = [
+                        len(text) / 10000.0,  # Normalized length
+                        len(lines) / 100.0,   # Normalized line count
+                        sum(len(line) for line in lines) / max(len(lines), 1) / 100.0  # Avg line length
+                    ]
+                    self._feature_cache[cache_key] = vector
+                    return vector
+
+            else:
+                # For other files, use file size and name similarity as features
+                content = file.get_content()
+                size = len(content) if content else 0
+                name = file.get_name(with_extension=False).lower()
+
+                # Simple features based on size and name length
+                vector = [
+                    size / (1024 * 1024.0),  # Size in MB
+                    len(name) / 50.0,        # Normalized name length
+                    hash(name) % 100 / 100.0  # Simple hash-based feature
+                ]
+                self._feature_cache[cache_key] = vector
+                return vector
+
+        except Exception as e:
+            logger.debug(f"Error extracting features for {file.get_id()}: {e}")
+
+        return None
+
+    def _cluster_by_features(self, files: List[dict], file_to_vector: Dict[str, List[float]], file_type: str) -> List[List[dict]]:
+        """
+        Simple clustering algorithm based on feature vector similarity.
+        Uses hierarchical clustering for small sets, binning for large sets.
+        """
+        if len(files) <= 10:
+            # For small sets, put all files in one cluster
+            return [files]
+
+        # For larger sets, use binning based on primary features
+        clusters = {}
+
+        for file in files:
+            vector = file_to_vector.get(file.get_id())
+            if vector is None:
+                continue
+
+            if file_type == "images":
+                # Cluster images by perceptual hash similarity
+                cluster_key = tuple(vector[:8])  # Use first 8 bits as cluster key
+            elif file_type == "text":
+                # Cluster text by size and line count
+                size_bin = int(vector[0] * 10)  # Bin by size
+                cluster_key = f"text_{size_bin}"
+            else:
+                # Cluster other files by size
+                size_bin = int(vector[0] * 10)  # Bin by size in MB
+                cluster_key = f"other_{size_bin}"
+
+            if cluster_key not in clusters:
+                clusters[cluster_key] = []
+            clusters[cluster_key].append(file)
+
+        # Return clusters with at least 2 files
+        return [cluster for cluster in clusters.values() if len(cluster) >= 2]
 
     def get_similarity_score(self, file1: dict, file2: dict) -> float:
         """
