@@ -67,15 +67,26 @@ class SimilarityDetector:
         Returns:
             Dictionary mapping similarity group ID to list of similar files
         """
+        import time
+        start_time = time.time()
+
         logger.info("Starting similarity detection with %d files", len(files))
         logger.debug("Similarity configuration: %s", self.config)
+
         if self.config.threshold >= 1.0:
             # Use exact hash for 100% similarity
-            return self._find_exact_duplicates(files)
+            result = self._find_exact_duplicates(files)
+            elapsed = time.time() - start_time
+            logger.info("Exact duplicate detection completed in %.2f seconds", elapsed)
+            return result
+
+        import time
+        start_time = time.time()
 
         similar_groups = {}
         processed_files = set()
         group_index = 1
+        comparisons_made = 0
 
         for i, file1 in enumerate(files):
             if file1.get_id() in processed_files:
@@ -91,6 +102,7 @@ class SimilarityDetector:
                     continue
 
                 similarity_score = self.get_similarity_score(file1, file2)
+                comparisons_made += 1
                 if similarity_score >= self.config.threshold:
                     similar_files.append(file2)
                     processed_files.add(file2.get_id())
@@ -99,6 +111,9 @@ class SimilarityDetector:
             if len(similar_files) > 1:
                 similar_groups[f"group_{group_index}"] = similar_files
                 group_index += 1
+
+        elapsed = time.time() - start_time
+        logger.debug("Standard detection: %d comparisons in %.3f seconds", comparisons_made, elapsed)
 
         return similar_groups
 
@@ -139,9 +154,12 @@ class SimilarityDetector:
         Returns:
             Float between 0.0 and 1.0 representing similarity
         """
+        import time
+        start_time = time.time()
 
         # Quick check: if files have same hash, they're identical
         if self._files_have_same_hash(file1, file2):
+            logger.debug(f"Files identical by hash: {file1.get_id()} == {file2.get_id()}")
             return 1.0
 
         max_similarity = 0.0
@@ -166,11 +184,16 @@ class SimilarityDetector:
 
                 # Early exit if we found high similarity
                 if max_similarity >= self.config.threshold:
+                    logger.debug(f"Early exit at {method.value}: {max_similarity:.3f}")
                     break
 
             except Exception as e:
                 logger.debug(f"Error calculating {method.value} similarity: {e}")
                 continue
+
+        elapsed = time.time() - start_time
+        if elapsed > 0.1:  # Log slow comparisons
+            logger.debug(f"Similarity calculation took {elapsed:.3f}s for {file1.get_id()} vs {file2.get_id()}")
 
         return max_similarity
 
