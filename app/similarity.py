@@ -163,23 +163,15 @@ class SimilarityDetector:
             return 1.0
 
         max_similarity = 0.0
+        remaining_methods = self.config.methods.copy()
 
-        # Try different similarity methods
-        for method in self.config.methods:
+        # Try methods in order of computational efficiency
+        for method in self._get_ordered_methods():
+            if method not in remaining_methods:
+                continue
+
             try:
-                if method == SimilarityMethod.HASH_PERCEPTUAL and self.config.enable_perceptual_hash:
-                    similarity = self._perceptual_hash_similarity(file1, file2)
-                elif method == SimilarityMethod.CONTENT_TEXT and self.config.enable_content_similarity:
-                    similarity = self._text_content_similarity(file1, file2)
-                elif method == SimilarityMethod.CONTENT_BINARY and self.config.enable_content_similarity:
-                    similarity = self._binary_content_similarity(file1, file2)
-                elif method == SimilarityMethod.IMAGE_STRUCTURAL and self.config.enable_image_similarity:
-                    similarity = self._image_structural_similarity(file1, file2)
-                elif method == SimilarityMethod.FILENAME_FUZZY and self.config.enable_filename_similarity:
-                    similarity = self._filename_similarity(file1, file2)
-                else:
-                    continue
-
+                similarity = self._calculate_method_similarity(method, file1, file2)
                 max_similarity = max(max_similarity, similarity)
 
                 # Early exit if we found high similarity
@@ -187,8 +179,12 @@ class SimilarityDetector:
                     logger.debug(f"Early exit at {method.value}: {max_similarity:.3f}")
                     break
 
+                # Remove method from remaining list
+                remaining_methods.remove(method)
+
             except Exception as e:
                 logger.debug(f"Error calculating {method.value} similarity: {e}")
+                remaining_methods.remove(method)
                 continue
 
         elapsed = time.time() - start_time
@@ -196,6 +192,60 @@ class SimilarityDetector:
             logger.debug(f"Similarity calculation took {elapsed:.3f}s for {file1.get_id()} vs {file2.get_id()}")
 
         return max_similarity
+
+    def _get_ordered_methods(self) -> List[SimilarityMethod]:
+        """Return methods ordered by computational efficiency (fastest first)."""
+        ordered_methods = [
+            SimilarityMethod.FILENAME_FUZZY,      # Fast: string comparison
+            SimilarityMethod.HASH_EXACT,          # Fast: hash comparison
+            SimilarityMethod.HASH_PERCEPTUAL,     # Medium: image processing
+            SimilarityMethod.CONTENT_TEXT,        # Medium: text processing
+            SimilarityMethod.CONTENT_BINARY,      # Slow: binary comparison
+            SimilarityMethod.IMAGE_STRUCTURAL,    # Slow: image processing
+        ]
+
+        # Filter to only include enabled methods
+        return [m for m in ordered_methods if self._is_method_enabled(m)]
+
+    def _is_method_enabled(self, method: SimilarityMethod) -> bool:
+        """Check if a similarity method is enabled in the configuration."""
+        if method not in self.config.methods:
+            return False
+
+        if method == SimilarityMethod.HASH_PERCEPTUAL:
+            return self.config.enable_perceptual_hash
+        elif method == SimilarityMethod.CONTENT_TEXT or method == SimilarityMethod.CONTENT_BINARY:
+            return self.config.enable_content_similarity
+        elif method == SimilarityMethod.IMAGE_STRUCTURAL:
+            return self.config.enable_image_similarity
+        elif method == SimilarityMethod.FILENAME_FUZZY:
+            return self.config.enable_filename_similarity
+        else:
+            return True
+
+    def _calculate_method_similarity(self, method: SimilarityMethod, file1: dict, file2: dict) -> float:
+        """Calculate similarity using a specific method with caching."""
+        cache_key = f"{method.value}_{file1.get_id()}_{file2.get_id()}"
+
+        if cache_key in self._feature_cache:
+            return self._feature_cache[cache_key]
+
+        similarity = 0.0
+        if method == SimilarityMethod.HASH_PERCEPTUAL and self.config.enable_perceptual_hash:
+            similarity = self._perceptual_hash_similarity(file1, file2)
+        elif method == SimilarityMethod.CONTENT_TEXT and self.config.enable_content_similarity:
+            similarity = self._text_content_similarity(file1, file2)
+        elif method == SimilarityMethod.CONTENT_BINARY and self.config.enable_content_similarity:
+            similarity = self._binary_content_similarity(file1, file2)
+        elif method == SimilarityMethod.IMAGE_STRUCTURAL and self.config.enable_image_similarity:
+            similarity = self._image_structural_similarity(file1, file2)
+        elif method == SimilarityMethod.FILENAME_FUZZY and self.config.enable_filename_similarity:
+            similarity = self._filename_similarity(file1, file2)
+        elif method == SimilarityMethod.HASH_EXACT:
+            similarity = 1.0 if self._files_have_same_hash(file1, file2) else 0.0
+
+        self._feature_cache[cache_key] = similarity
+        return similarity
 
     def _files_have_same_hash(self, file1: dict, file2: dict) -> bool:
         """Check if two files have the same MD5 hash."""
