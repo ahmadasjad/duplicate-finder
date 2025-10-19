@@ -141,16 +141,16 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             logger.exception(e)
             return None
 
-    async def _collect_files(self, folder_id, recursive, status_el):
+    async def _collect_files(self, folder_id, recursive, update_progress=None):
         """Collect all files from the specified folder (recursively if needed)"""
         all_files = []
         if recursive:
-            status_el.text("Discovering folders and files recursively...")
+            update_progress(0.05, "Discovering folders and files recursively...") if update_progress else None
             all_files = await self.google_service.get_files_recursive(
                 parent_folder_id=folder_id,
             )
         else:
-            status_el.text("Fetching file list from Google Drive...")
+            update_progress(0.05, "Fetching file list from Google Drive...") if update_progress else None
             page_token = None
             while True:
                 files, page_token = await self.google_service.get_files(
@@ -199,7 +199,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
 
         return skipped_no_hash
 
-    def _find_duplicates_exact(self, all_files: list[dict], filters: ScanFilterOptions, progress_bar) -> Dict:
+    def _find_duplicates_exact(self, all_files: list[dict], filters: ScanFilterOptions, update_progress=None) -> Dict:
         file_dict: dict[str, list[dict]] = {}
         skipped_no_hash = 0
         skipped_filters = 0
@@ -208,9 +208,9 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         for i, file_info in enumerate(all_files):
             try:
                 # Update progress
-                if i%5 == 0:  # Update progress at every 5 files
+                if update_progress and i % 5 == 0:  # Update progress at every 5 files
                     progress = (i + 1) / total_files
-                    progress_bar.progress(progress)
+                    update_progress(progress, f"Processing files: {i+1}/{total_files}")
 
                 # Apply filters
                 skip_reason = self._apply_file_filters(
@@ -232,7 +232,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         duplicates = {k: v for k, v in file_dict.items() if len(v) > 1}
         return duplicates
 
-    def scan_directory(self, directory: dict, filters: ScanFilterOptions) -> Dict[str, List[dict]]:
+    def scan_directory(self, directory: dict, filters: ScanFilterOptions, update_progress=None) -> Dict[str, List[dict]]:
         """Scan Google Drive directory for duplicates"""
 
         if not self.google_service.is_user_authenticated():
@@ -248,19 +248,14 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             folder_id = directory
             # recursive = False
 
-        # Create a placeholder for status messages that will be reused
-        status_placeholder = st.empty()
-        progress_bar = st.progress(0)
-        status_el = st.empty()
-
         # Initial status message
-        status_placeholder.info("🔍 Scanning Google Drive for duplicates...")
+        update_progress(0.0, "🔍 Scanning Google Drive for duplicates...") if update_progress else None
 
         try:
             # Get all files from the specified folder and subfolders
             import asyncio
             start_time = time.time()
-            all_files = asyncio.run(self._collect_files(folder_id, recursive, status_el))
+            all_files = asyncio.run(self._collect_files(folder_id, recursive, update_progress=update_progress))
             total_files = len(all_files)
             elapsed_time = time.time() - start_time
             logger.debug("Collected %d files in %.2f seconds", total_files, elapsed_time)
@@ -268,22 +263,16 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             if total_files == 0:
                 raise NoFileFoundException("No files found in the selected folder")
 
-            status_el.empty()  # Clear the initial status message
-
             # Show processing status
-            status_placeholder.info(f"Found {total_files} files. Analyzing for duplicates...")
+            update_progress(0.01, f"Found {total_files} files. Analyzing for duplicates...") if update_progress else None
 
-            return self.find_duplicates(all_files, filters, progress_bar=progress_bar)
+            return self.find_duplicates(all_files, filters, update_progress=update_progress)
         except (NoDuplicateException, NoFileFoundException) as e:
             raise e # forward the exception
         except Exception as e:
             st.error("Error scanning Google Drive")
             logger.exception(e)
             return {}
-        finally:
-            status_placeholder.empty()
-            status_el.empty()
-            progress_bar.empty()
 
     def delete_files(self, files: List[dict]) -> bool:
         """Delete files from Google Drive"""

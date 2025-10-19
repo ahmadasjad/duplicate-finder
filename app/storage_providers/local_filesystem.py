@@ -185,7 +185,7 @@ class LocalFileSystemProvider(BaseStorageProvider):
 
         return exact_groups
 
-    def scan_directory(self, directory: dict, filters: ScanFilterOptions) -> Dict[str, List[dict]]:
+    def scan_directory(self, directory: dict, filters: ScanFilterOptions, update_progress=None) -> Dict[str, List[dict]]:
         """Scans directory and identify duplicates with optional filters."""
         folder_path = directory.get('path', '')
         if not folder_path or not os.path.exists(folder_path):
@@ -226,7 +226,7 @@ class LocalFileSystemProvider(BaseStorageProvider):
                 all_files.append(lf)
 
 
-        return self.find_duplicates(all_files, filters, progress_bar=None)
+        return self.find_duplicates(all_files, filters, update_progress=update_progress)
 
     def delete_files(self, files: List[dict]) -> bool:
         """Delete selected files"""

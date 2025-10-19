@@ -442,11 +442,25 @@ class DuplicateFinderUI:
         if st.button("Scan for Duplicates", type="primary"):
             st.divider()
             try:
+                # Create progress tracking
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+
+                def update_progress(progress, status=""):
+                    progress_bar.progress(progress)
+                    if status:
+                        status_text.text(status)
+
                 with st.spinner("Scanning for duplicates..."):
                     st.session_state.duplicates = selected_provider.scan_directory(
                         directory,
-                        scan_options
+                        scan_options,
+                        update_progress=update_progress,
                     )
+
+                # Clear progress indicators
+                progress_bar.empty()
+                status_text.empty()
 
                 if st.session_state.duplicates:
                     total_duplicates = sum(len(group) for group in st.session_state.duplicates.values())

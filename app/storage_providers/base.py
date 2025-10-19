@@ -42,7 +42,7 @@ class BaseStorageProvider(ABC):
         """Return the appropriate Streamlit widget for directory input"""
 
     @abstractmethod
-    def scan_directory(self, directory: dict, filters: ScanFilterOptions) -> Dict[str, List[dict]]:
+    def scan_directory(self, directory: dict, filters: ScanFilterOptions, update_progress=None) -> Dict[str, List[dict]]:
         """Scan directory and return duplicate file groups
 
         Args:
@@ -94,7 +94,7 @@ class BaseStorageProvider(ABC):
         """
         return f"Found {duplicate_groups} groups of duplicates."
 
-    def _find_duplicates_similar(self, all_files: List[dict], filters: ScanFilterOptions, exact_groups) -> dict:
+    def _find_duplicates_similar(self, all_files: List[dict], filters: ScanFilterOptions, exact_groups, update_progress=None) -> dict:
         """Run SimilarityDetector on provided file entries and return similar groups."""
         logger.info("Using similarity detection with threshold: %s", filters.similarity_threshold)
 
@@ -115,7 +115,7 @@ class BaseStorageProvider(ABC):
         )
         detector = SimilarityDetector(similarity_config)
         # SimilarityDetector expects entries with 'path' key
-        return detector.find_similar_files(filtered_files)
+        return detector.find_similar_files(filtered_files, update_progress=update_progress)
 
     def _merge_exact_and_similar(self, exact_groups: dict, similar_groups: dict) -> dict:
         """Merge exact and similar duplicate groups into a single dictionary."""
@@ -137,17 +137,17 @@ class BaseStorageProvider(ABC):
 
         return merged
 
-    def find_duplicates(self, all_files: List[dict], filters: ScanFilterOptions, progress_bar = None) -> Dict:
+    def find_duplicates(self, all_files: List[dict], filters: ScanFilterOptions, update_progress = None) -> Dict:
         """Find duplicate files in the storage provider."""
 
-        exact_groups = self._find_duplicates_exact(all_files, filters, progress_bar=progress_bar)
+        exact_groups = self._find_duplicates_exact(all_files, filters, update_progress=update_progress)
 
         # If similarity is not enabled or threshold is exact, return exact groups
         if not (filters.enable_similarity_detection and filters.similarity_threshold < 1.0):
             return exact_groups
 
         # Run similarity across remaining files
-        similar_groups = self._find_duplicates_similar(all_files, filters, exact_groups)
+        similar_groups = self._find_duplicates_similar(all_files, filters, exact_groups, update_progress=update_progress)
         logger.info("Found %d similar groups", len(similar_groups))
 
         return self._merge_exact_and_similar(exact_groups, similar_groups)

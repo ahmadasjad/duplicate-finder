@@ -61,12 +61,13 @@ class SimilarityDetector:
         self._feature_cache = {}
         self._optimization_threshold = 100  # Use optimized algorithm for large file sets
 
-    def find_similar_files(self, files: List[dict]) -> Dict[str, List[dict]]:
+    def find_similar_files(self, files: List[dict], update_progress=None) -> Dict[str, List[dict]]:
         """
         Find similar files using configured similarity methods.
 
         Args:
             files: List of file dictionaries with 'path' key
+            update_progress: Optional callback function to report progress
 
         Returns:
             Dictionary mapping similarity group ID to list of similar files
@@ -90,10 +91,10 @@ class SimilarityDetector:
         # Use optimized algorithm for large file sets
         if len(files) > self._optimization_threshold:
             logger.info("Using optimized similarity detection for %d files", len(files))
-            result = self._find_similar_files_optimized(files)
+            result = self._find_similar_files_optimized(files, update_progress=update_progress)
         else:
             logger.info("Using standard similarity detection for %d files", len(files))
-            result = self._find_similar_files_standard(files)
+            result = self._find_similar_files_standard(files, update_progress=update_progress)
 
         elapsed = time.time() - start_time
         total_groups = len(result)
@@ -101,9 +102,13 @@ class SimilarityDetector:
         logger.info("Similarity detection completed in %.2f seconds: %d groups, %d files",
                    elapsed, total_groups, total_files)
 
+        # Final progress update
+        if update_progress:
+            update_progress(1.0, f"Completed! Found {total_groups} groups with {total_files} similar files")
+
         return result
 
-    def _find_similar_files_standard(self, files: List[dict]) -> Dict[str, List[dict]]:
+    def _find_similar_files_standard(self, files: List[dict], update_progress=None) -> Dict[str, List[dict]]:
         """Standard O(n²) similarity detection for small file sets."""
         import time
         start_time = time.time()
@@ -112,6 +117,7 @@ class SimilarityDetector:
         processed_files = set()
         group_index = 1
         comparisons_made = 0
+        total_files = len(files)
 
         for i, file1 in enumerate(files):
             if file1.get_id() in processed_files:
@@ -137,12 +143,17 @@ class SimilarityDetector:
                 similar_groups[f"group_{group_index}"] = similar_files
                 group_index += 1
 
+            # Report progress
+            if update_progress and i % 10 == 0:  # Report every 10 files to avoid too many updates
+                progress = (i + 1) / total_files
+                update_progress(progress, f"Processing file {i+1}/{total_files} - Found {len(similar_groups)} groups")
+
         elapsed = time.time() - start_time
         logger.debug("Standard detection: %d comparisons in %.3f seconds", comparisons_made, elapsed)
 
         return similar_groups
 
-    def _find_similar_files_optimized(self, files: List[dict]) -> Dict[str, List[dict]]:
+    def _find_similar_files_optimized(self, files: List[dict], update_progress=None) -> Dict[str, List[dict]]:
         """
         Optimized similarity detection using clustering and feature vector caching.
         Reduces O(n²) complexity by grouping files by type and using efficient comparisons.
@@ -159,6 +170,8 @@ class SimilarityDetector:
 
         similar_groups = {}
         group_index = 1
+        total_groups = len([g for g in [image_files, text_files, other_files] if len(g) >= 2])
+        processed_groups = 0
 
         # Process each file type group separately
         for file_group, group_name in [(image_files, "images"), (text_files, "text"), (other_files, "other")]:
@@ -166,6 +179,11 @@ class SimilarityDetector:
                 continue
 
             logger.debug("Processing %s files: %d", group_name, len(file_group))
+
+            # Report progress for group processing
+            if update_progress:
+                progress = processed_groups / total_groups if total_groups > 0 else 0
+                update_progress(progress, f"Processing {group_name} files ({len(file_group)} files)")
 
             # Use clustering for large groups
             if len(file_group) > self._optimization_threshold // 3:
@@ -178,6 +196,8 @@ class SimilarityDetector:
                 if len(group) > 1:
                     similar_groups[f"group_{group_index}"] = group
                     group_index += 1
+
+            processed_groups += 1
 
         return similar_groups
 
