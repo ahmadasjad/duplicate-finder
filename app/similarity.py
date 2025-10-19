@@ -75,13 +75,13 @@ class SimilarityDetector:
 
         similar_groups = {}
         processed_files = set()
+        group_index = 1
 
         for i, file1 in enumerate(files):
             if file1.get_id() in processed_files:
                 continue
 
             # Start a new similarity group
-            group_id = f"group_{i}"
             similar_files = [file1]
             processed_files.add(file1.get_id())
 
@@ -97,7 +97,8 @@ class SimilarityDetector:
 
             # Only keep groups with more than one file
             if len(similar_files) > 1:
-                similar_groups[group_id] = similar_files
+                similar_groups[f"group_{group_index}"] = similar_files
+                group_index += 1
 
         return similar_groups
 
