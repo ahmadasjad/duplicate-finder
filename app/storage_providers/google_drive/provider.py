@@ -3,8 +3,10 @@
 import os
 import logging
 import time
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 import io
+import asyncio
+from threading import Thread
 
 import requests
 import streamlit as st
@@ -60,9 +62,42 @@ def log_scan_summary(*,total_files, processed_files, skipped_no_hash, skipped_fi
 class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
     """Google Drive storage provider with OAuth2 authentication"""
 
+    _SCAN_MEDIA_PREFETCH_PROGRESS_PORTION = 0.2
+
     def __init__(self):
         BaseStorageProvider.__init__(self, "Google Drive")
         GoogleAuthenticator.__init__(self)
+
+    def _run_coroutine(self, awaitable):
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(awaitable)
+
+        if loop.is_running():
+            result_holder: Dict[str, object] = {}
+            error_holder: Dict[str, BaseException] = {}
+
+            def runner():
+                new_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(new_loop)
+                try:
+                    result_holder["value"] = new_loop.run_until_complete(awaitable)
+                except BaseException as exc:  # pragma: no cover - defensive guard
+                    error_holder["error"] = exc
+                finally:
+                    new_loop.close()
+
+            thread = Thread(target=runner, daemon=True)
+            thread.start()
+            thread.join()
+
+            if error_holder:
+                raise error_holder["error"]
+
+            return result_holder.get("value")
+
+        return loop.run_until_complete(awaitable)
 
     def authenticate(self) -> bool:
         """Simple authentication check."""
@@ -132,8 +167,7 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         else:
             st.success("✅ Connected to Google Drive")
         try:
-            import asyncio
-            folders, _ = asyncio.run(self.google_service.get_folders(parent_folder_id='root', per_page=50))
+            folders, _ = self._run_coroutine(self.google_service.get_folders(parent_folder_id='root', per_page=50))
             folders = [{"name": f"My Drive/{folder['name']}", "id": folder['id']} for folder in folders]
             return self._handle_folder_selection(folders)
         except Exception as e:
@@ -164,6 +198,53 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         # logger.debug(all_files)
 
         return [GoogleDriveFile(drive=self.google_service, **f) for f in all_files]
+
+    def _prefetch_media_for_scan(self, files: List[dict], *, update_progress=None):
+        if not files:
+            return
+
+        file_ids = [
+            file_obj.get('id')
+            for file_obj in files
+            if isinstance(file_obj, dict) and file_obj.get('id')
+        ]
+        if not file_ids:
+            return
+
+        progress_offset = 0.02
+        progress_span = self._SCAN_MEDIA_PREFETCH_PROGRESS_PORTION
+
+        if update_progress:
+            update_progress(progress_offset, f"Prefetching media for {len(file_ids)} files...")
+
+        def progress_callback(progress: float, status: Optional[str]):
+            if not update_progress:
+                return
+            scaled = progress_offset + progress_span * progress
+            update_progress(min(scaled, 0.95), status or "Downloading media from Google Drive")
+
+        try:
+            media_map = self._run_coroutine(
+                self.google_service.prefetch_media(
+                    file_ids,
+                    is_thumbnail=False,
+                    progress_callback=progress_callback,
+                )
+            ) or {}
+        except Exception as exc:
+            logger.exception("Failed to prefetch Google Drive media: %s", exc)
+            return
+
+        for file_obj in files:
+            file_id = file_obj.get('id')
+            if not file_id:
+                continue
+            media_bytes = media_map.get(file_id)
+            if media_bytes is not None:
+                file_obj['_prefetched_media'] = media_bytes
+
+        if update_progress:
+            update_progress(progress_offset + progress_span, "Media download completed")
 
     def _apply_file_filters(self, file_info, filters: ScanFilterOptions):
         """Apply filters to a file and return skip reason if any, else None"""
@@ -253,9 +334,10 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
 
         try:
             # Get all files from the specified folder and subfolders
-            import asyncio
             start_time = time.time()
-            all_files = asyncio.run(self._collect_files(folder_id, recursive, update_progress=update_progress))
+            all_files = self._run_coroutine(
+                self._collect_files(folder_id, recursive, update_progress=update_progress)
+            )
             total_files = len(all_files)
             elapsed_time = time.time() - start_time
             logger.debug("Collected %d files in %.2f seconds", total_files, elapsed_time)
@@ -263,8 +345,10 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             if total_files == 0:
                 raise NoFileFoundException("No files found in the selected folder")
 
-            # Show processing status
-            update_progress(0.01, f"Found {total_files} files. Analyzing for duplicates...") if update_progress else None
+            self._prefetch_media_for_scan(all_files, update_progress=update_progress)
+
+            if update_progress:
+                update_progress(0.25, f"Found {total_files} files. Analyzing for duplicates...")
 
             return self.find_duplicates(all_files, filters, update_progress=update_progress)
         except (NoDuplicateException, NoFileFoundException) as e:
@@ -337,6 +421,68 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         so we need to handle both cases.
         """
         return get_enriched_file_info(file)
+
+    def prefetch_media_for_files(
+        self,
+        files: List[dict],
+        *,
+        thumbnails_only: bool = True,
+        batch_size: int | None = None,
+        max_workers: int | None = None,
+        progress_callback=None
+    ) -> Dict[str, Union[bytes, None]]:
+        """
+        Prefetch media blobs for multiple files using concurrent Google Drive requests.
+
+        Args:
+            files: Sequence of Google Drive file dictionaries
+            thumbnails_only: Whether to fetch thumbnails instead of full media
+            batch_size: Unused placeholder for backward compatibility
+            max_workers: Optional override for request concurrency
+            progress_callback: Optional callable receiving (progress_float, status_text)
+        """
+        if not files:
+            return {}
+
+        file_map: Dict[str, dict] = {}
+        for file_obj in files:
+            if not isinstance(file_obj, dict):
+                continue
+            file_id = str(file_obj.get('id', '')).strip()
+            if not file_id or file_id in file_map:
+                continue
+            file_map[file_id] = file_obj
+
+        if not file_map:
+            return {}
+
+        def progress_wrapper(progress: float, status: Optional[str]):
+            if progress_callback:
+                progress_callback(progress, status)
+
+        try:
+            results = self._run_coroutine(
+                self.google_service.prefetch_media(
+                    file_map.keys(),
+                    is_thumbnail=thumbnails_only,
+                    concurrency=max_workers,
+                    progress_callback=progress_wrapper,
+                )
+            ) or {}
+        except Exception as exc:
+            logger.exception("Failed to prefetch Google Drive media for UI: %s", exc)
+            return {}
+
+        storage_key = '_prefetched_thumbnail' if thumbnails_only else '_prefetched_media'
+        for file_id, content in results.items():
+            if content is None:
+                continue
+            target = file_map.get(file_id)
+            if target is None:
+                continue
+            target[storage_key] = content
+
+        return results
 
     def preview_file(self, file: dict):
         """Preview Google Drive file - only handles preview content, no layout"""
