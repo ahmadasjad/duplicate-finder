@@ -172,16 +172,31 @@ class LocalFileSystemProvider(BaseStorageProvider):
         except (OSError, IOError):
             return None
 
-    def _find_duplicates_exact(self, all_files: List[dict], filters: ScanFilterOptions, progress_bar = None) -> dict:
-        """Find exact duplicates by MD5 and return (exact_groups, remaining_files)."""
+    def _find_duplicates_exact(
+        self,
+        all_files: List[dict],
+        filters: ScanFilterOptions,
+        *,
+        update_progress=None,
+    ) -> dict:
+        """Find exact duplicates by MD5 and return groups of matching files."""
         file_dict: dict[str, list[dict]] = {}
-        for file_info in all_files:
+        total_files = len(all_files)
+
+        for index, file_info in enumerate(all_files):
             file_path = file_info['path']
             file_hash = self.get_file_hash(file_path)
             if file_hash:
                 file_dict.setdefault(file_hash, []).append(file_info)
 
-        exact_groups = {k: v for k, v in file_dict.items() if len(v) > 1}
+            if update_progress and total_files > 0 and index % 20 == 0:
+                progress = (index + 1) / total_files
+                update_progress(progress, f"Hashing files {index + 1}/{total_files}")
+
+        exact_groups = {hash_key: files for hash_key, files in file_dict.items() if len(files) > 1}
+
+        if update_progress and total_files > 0:
+            update_progress(1.0, "Exact duplicate detection complete")
 
         return exact_groups
 
