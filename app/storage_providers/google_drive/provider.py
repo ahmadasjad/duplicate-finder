@@ -344,16 +344,13 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             st.info("File preview not available for this Google Drive file")
             return
 
-        file_info = file
-        file_name = file_info.get('name', 'Unknown')
-        file_id = file_info.get('id', '')
-        mime_type = file_info.get('mimeType', '')
+        mime_type = file.get('mimeType', '')
 
         # Handle different file types
         if mime_type.startswith('image/'):
-            self._preview_image(file_id, file_name)
+            self._preview_image(file)
         elif mime_type == 'application/pdf':
-            self._preview_pdf(file_id)
+            self._preview_pdf(file)
         else:
             st.info("📁 'Open in Google Drive'")
 
@@ -421,11 +418,23 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             logger.warning("⚠️ Could not create thumbnail: %s", e)
             return True
 
-    def _handle_image_download(self, file_id: str, file_name: str) -> bool:
+    def _handle_image_download(self, file: dict) -> bool:
         """Download and display image from Google Drive"""
+        file_id = file.get('id', '')
+        file_name = file.get('name', 'Unknown')
+
+        prefetched = file.get('_prefetched_thumbnail') or file.get('_prefetched_media')
+        if prefetched:
+            return self._create_image_thumbnail(prefetched, file_name)
+
+        if not file_id:
+            return False
+
         try:
             file_content = self.google_service.get_file_media(file_id=file_id)
-            return self._create_image_thumbnail(file_content, file_name)
+            if file_content:
+                file['_prefetched_media'] = file_content
+            return self._create_image_thumbnail(file_content, file_name) if file_content else False
         except Exception as e:
             logger.exception(e)
             return False
@@ -452,14 +461,22 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
         st.write("• Click 'Preview in New Tab' for a larger view")
         st.write("• Click 'Download Image' to save locally")
 
-    def _preview_pdf(self, file_id: str):
+    def _preview_pdf(self, file: dict):
         """Handle PDF file preview"""
+        file_id = file.get('id', '')
         if not file_id:
+            return
+
+        prefetched = file.get('_prefetched_media')
+        if prefetched:
+            from ...preview import preview_blob_inline
+            preview_blob_inline(prefetched, 'pdf')
             return
 
         try:
             pdf_content = self.google_service.get_file_media(file_id=file_id)
             if pdf_content:
+                file['_prefetched_media'] = pdf_content
                 from ...preview import preview_blob_inline
                 preview_blob_inline(pdf_content, 'pdf')
         except Exception as e:
@@ -468,14 +485,17 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             pdf_embed_url = f"https://drive.google.com/file/d/{file_id}/preview"
             st.markdown(f"**📖 [View PDF]({pdf_embed_url})**")
 
-    def _preview_image(self, file_id: str, file_name: str) -> bool:
+    def _preview_image(self, file: dict) -> bool:
         """Handle image file preview with multiple fallback options"""
+        file_id = file.get('id', '')
+        file_name = file.get('name', 'Unknown')
+
         if not file_id:
             st.info("📋 Click the links above to view this image in Google Drive")
             return False
 
         # Try direct download first
-        preview_success = self._handle_image_download(file_id, file_name)
+        preview_success = self._handle_image_download(file)
 
         # If direct download failed, try thumbnail
         if not preview_success:
