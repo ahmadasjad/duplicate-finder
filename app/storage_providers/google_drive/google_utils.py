@@ -217,19 +217,67 @@ The authorization code format is incorrect.
             logger.error("Google Drive service is not initialized.")
             return None
 
+        MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB limit
+        session = None
+
         try:
+            # Create a new session for each download to prevent SSL context reuse
+            session = requests.Session()
+
             # Try thumbnail URL first for thumbnails
             if is_thumbnail:
                 try:
                     thumbnail_url = f"https://drive.google.com/thumbnail?id={file_id}&sz=w250"
-                    response = requests.get(thumbnail_url, timeout=15)
-                    if response.status_code == 200 and response.content:
-                        return response.content
+                    response = session.get(thumbnail_url, timeout=15, stream=True)
+                    if response.status_code == 200:
+                        # Check content length if available
+                        content_length = response.headers.get('content-length')
+                        if content_length and int(content_length) > MAX_FILE_SIZE:
+                            logger.warning(f"File {file_id} too large: {content_length} bytes")
+                            return None
+
+                        # Read in chunks to avoid memory issues
+                        chunks = []
+                        total_size = 0
+                        for chunk in response.iter_content(chunk_size=8192):
+                            total_size += len(chunk)
+                            if total_size > MAX_FILE_SIZE:
+                                logger.warning(f"File {file_id} exceeded size limit while streaming")
+                                return None
+                            chunks.append(chunk)
+
+                        if chunks:
+                            return b''.join(chunks)
                 except (requests.Timeout, requests.RequestException) as e:
                     logger.debug("Failed to get thumbnail via URL, falling back to service: %s", e)
+                finally:
+                    if session:
+                        session.close()
 
             # Use service.files().get_media() for both full media and thumbnail fallback
-            return self.service.files().get_media(fileId=file_id).execute()
+            try:
+                # Get file metadata first to check size
+                file_metadata = self.service.files().get(fileId=file_id, fields="size").execute()
+                if file_metadata and 'size' in file_metadata:
+                    file_size = int(file_metadata['size'])
+                    if file_size > MAX_FILE_SIZE:
+                        logger.warning(f"File {file_id} too large: {file_size} bytes")
+                        return None
+
+                # Download the file with size limit
+                request = self.service.files().get_media(fileId=file_id)
+                response = request.execute()
+
+                if isinstance(response, bytes) and len(response) <= MAX_FILE_SIZE:
+                    return response
+                else:
+                    logger.warning(f"File {file_id} response invalid or too large")
+                    return None
+
+            except Exception as e:
+                logger.error(f"Service download failed for {file_id}: {str(e)}")
+                return None
+
         except Exception as exc:
             logger.error(
                 "Failed to get %s for file %s: %s",
@@ -238,6 +286,10 @@ The authorization code format is incorrect.
                 exc
             )
             return None
+        finally:
+            # Ensure session is closed
+            if session:
+                session.close()
 
     def _fetch_and_cache_media(self, file_id: str, is_thumbnail: bool) -> Optional[bytes]:
         cache_key = self._media_cache_key(file_id, is_thumbnail)
@@ -260,6 +312,10 @@ The authorization code format is incorrect.
         concurrency: Optional[int] = None,
         progress_callback=None
     ) -> Dict[str, Optional[bytes]]:
+        # Process one file at a time to prevent SSL/memory issues
+        MAX_RETRIES = 3
+        DELAY_BETWEEN_FILES = 0.5  # seconds
+
         unique_ids: List[str] = []
         seen = set()
         for raw_id in file_ids or []:
@@ -276,6 +332,7 @@ The authorization code format is incorrect.
         results: Dict[str, Optional[bytes]] = {}
         uncached: List[str] = []
 
+        # Check cache first
         for file_id in unique_ids:
             cache_key = self._media_cache_key(file_id, is_thumbnail)
             cached = self._get_cached_media(cache_key)
@@ -287,48 +344,63 @@ The authorization code format is incorrect.
         if not uncached:
             return results
 
-        concurrency = concurrency or self._DEFAULT_MEDIA_CONCURRENCY
-        semaphore = asyncio.Semaphore(max(1, concurrency))
-        loop = asyncio.get_running_loop()
+        # Process files one at a time
+        total_files = len(uncached)
         completed = 0
-        total = len(uncached)
-        progress_lock = asyncio.Lock()
+        loop = asyncio.get_running_loop()
 
-        async def fetch_worker(target_id: str):
-            nonlocal completed
-            async with semaphore:
-                try:
-                    media_content = await loop.run_in_executor(
-                        None,
-                        self._fetch_and_cache_media,
-                        target_id,
-                        is_thumbnail,
-                    )
-                    if media_content is not None:
-                        results[target_id] = media_content
-                    else:
-                        # Store None to indicate failure but continue processing
-                        results[target_id] = None
-                        logger.debug("Failed to fetch media for file %s", target_id)
-                except Exception as exc:
-                    # Log error but don't fail the entire batch
-                    logger.warning(
-                        "Error fetching %s for file %s: %s",
-                        "thumbnail" if is_thumbnail else "media",
-                        target_id,
-                        exc
-                    )
-                    results[target_id] = None
-            async with progress_lock:
-                completed += 1
-                if progress_callback:
-                    progress_callback(completed / total, f"Fetched media {completed}/{total}")
+        # Process files sequentially to prevent memory/SSL issues
+        for file_id in uncached:
+            try:
+                # Run file download in executor to prevent blocking
+                media_content = await loop.run_in_executor(
+                    None,
+                    self._fetch_and_cache_media,
+                    file_id,
+                    is_thumbnail,
+                )
 
-        # Use return_exceptions=True to prevent one failure from stopping the entire batch
-        await asyncio.gather(
-            *(fetch_worker(file_id) for file_id in uncached),
-            return_exceptions=True
-        )
+                if media_content is not None:
+                    results[file_id] = media_content
+                else:
+                    # Retry on failure
+                    retries = 0
+                    while retries < MAX_RETRIES and media_content is None:
+                        logger.debug("Retrying fetch for file %s (attempt %d)", file_id, retries + 1)
+                        await asyncio.sleep(1)  # Add delay between retries
+                        media_content = await loop.run_in_executor(
+                            None,
+                            self._fetch_and_cache_media,
+                            file_id,
+                            is_thumbnail
+                        )
+                        retries += 1
+
+                    results[file_id] = media_content
+                    if media_content is None:
+                        logger.debug("Failed to fetch media for file %s after %d retries", file_id, MAX_RETRIES)
+
+            except Exception as exc:
+                logger.warning(
+                    "Error fetching %s for file %s: %s",
+                    "thumbnail" if is_thumbnail else "media",
+                    file_id,
+                    exc
+                )
+                results[file_id] = None
+
+            # Update progress
+            completed += 1
+            if progress_callback:
+                progress_callback(completed / total_files, f"Fetched media {completed}/{total_files}")
+
+            # Add delay between files to prevent overloading
+            await asyncio.sleep(DELAY_BETWEEN_FILES)
+
+            # Force garbage collection after each file
+            import gc
+            gc.collect()
+
         return results
 
     async def get_files(self, parent_folder_id: str, *, per_page: int = 100, page_token=None) -> tuple:
