@@ -12,6 +12,7 @@ import requests
 import streamlit as st
 
 from .google_utils import extract_file_id_and_name, get_enriched_file_info, CREDENTIALS_FILE
+from ...config import GDRIVE_SCAN_MEDIA_PREFETCH_PROGRESS_PORTION
 from ..base import BaseStorageProvider, ScanFilterOptions, BaseFile
 from ..exceptions import NoDuplicateException, NoFileFoundException
 from ...utils import get_thumbnail_from_image_data
@@ -66,7 +67,8 @@ class GoogleDriveProvider(BaseStorageProvider):
     maintaining clear separation of concerns between storage operations and authentication.
     """
 
-    _SCAN_MEDIA_PREFETCH_PROGRESS_PORTION = 0.2
+    # Configurable fraction of scan progress reserved for media prefetch
+    _SCAN_MEDIA_PREFETCH_PROGRESS_PORTION = GDRIVE_SCAN_MEDIA_PREFETCH_PROGRESS_PORTION
 
     def __init__(self):
         super().__init__("Google Drive")

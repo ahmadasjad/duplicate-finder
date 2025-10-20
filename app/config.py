@@ -60,3 +60,32 @@ MAX_PREVIEW_SIZE = {
 
 # Environment variables with defaults
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO") # INFO, DEBUG, WARNING, ERROR, CRITICAL
+
+# Google Drive related runtime defaults (can be overridden via environment variables)
+# - GDRIVE_SCAN_MEDIA_PREFETCH_PROGRESS_PORTION: fraction of overall progress bar
+#   allocated to media prefetch stage during a scan (float between 0.0 and 1.0)
+# - GDRIVE_DEFAULT_MEDIA_CONCURRENCY: default concurrency for media downloads
+def _get_float_env(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
+    except Exception:
+        return default
+
+def _get_int_env(name: str, default: int) -> int:
+    try:
+        val = int(os.getenv(name, str(default)))
+        return max(1, val)
+    except Exception:
+        return default
+
+# Fraction (0.0 - 1.0) of overall progress reserved for media prefetch during scans
+GDRIVE_SCAN_MEDIA_PREFETCH_PROGRESS_PORTION = _get_float_env(
+    "GDRIVE_SCAN_MEDIA_PREFETCH_PROGRESS_PORTION",
+    0.2,
+)
+
+# Default concurrency for media fetches (prefetch / thumbnail downloads) for Google Drive
+GDRIVE_DEFAULT_MEDIA_CONCURRENCY = _get_int_env(
+    "GDRIVE_DEFAULT_MEDIA_CONCURRENCY",
+    16,
+)

@@ -10,6 +10,7 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 
 from app.utils import format_iso_timestamp, human_readable_size, get_file_extension
+from app.config import GDRIVE_DEFAULT_MEDIA_CONCURRENCY
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,8 @@ SCOPES = [
 
 class GoogleService():
     fresh_media_hit_count = 0
-    _DEFAULT_MEDIA_CONCURRENCY = 16
+    # Default concurrency can be adjusted via environment variable GDRIVE_DEFAULT_MEDIA_CONCURRENCY
+    _DEFAULT_MEDIA_CONCURRENCY = GDRIVE_DEFAULT_MEDIA_CONCURRENCY
 
     def __init__(self):
         self.authenticated = False
