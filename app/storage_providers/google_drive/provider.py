@@ -76,6 +76,11 @@ class GoogleDriveProvider(BaseStorageProvider):
         self.google_service = self.authenticator.google_service
 
     def _run_coroutine(self, awaitable):
+        """Run async coroutine in sync context.
+
+        TODO: This creates new event loops which could cause threading issues in Streamlit.
+              Consider refactoring to use native async/await or a more robust async bridge.
+        """
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:

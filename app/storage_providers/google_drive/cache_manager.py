@@ -10,6 +10,12 @@ logger = logging.getLogger(__name__)
 CACHE_DIR = '.local/.cache'  # Default cache directory
 
 class DriveCache:
+    """Google Drive cache manager with SQLite backend.
+
+    TODO: Make cache expiry configurable instead of hardcoded 24 hours
+    TODO: Implement cache invalidation strategy when files are modified
+    TODO: Add retry logic and better error handling in delete_file_cache()
+    """
     def __init__(self, cache_dir: str = CACHE_DIR):
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(exist_ok=True)
@@ -309,6 +315,9 @@ class DriveCache:
         the file participates. Additionally, remove any references to this
         file from folder-scoped `file_cache` entries and remove thumbnail
         media entries (stored with a "_thumb" suffix).
+
+        TODO: This method is complex and could fail silently in some edge cases.
+              Consider breaking it into smaller methods and adding better error recovery.
         """
         try:
             with sqlite3.connect(self.db_path) as conn:
