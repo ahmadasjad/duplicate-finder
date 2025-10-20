@@ -290,20 +290,38 @@ The authorization code format is incorrect.
         async def fetch_worker(target_id: str):
             nonlocal completed
             async with semaphore:
-                media_content = await loop.run_in_executor(
-                    None,
-                    self._fetch_and_cache_media,
-                    target_id,
-                    is_thumbnail,
-                )
-                if media_content is not None:
-                    results[target_id] = media_content
+                try:
+                    media_content = await loop.run_in_executor(
+                        None,
+                        self._fetch_and_cache_media,
+                        target_id,
+                        is_thumbnail,
+                    )
+                    if media_content is not None:
+                        results[target_id] = media_content
+                    else:
+                        # Store None to indicate failure but continue processing
+                        results[target_id] = None
+                        logger.debug("Failed to fetch media for file %s", target_id)
+                except Exception as exc:
+                    # Log error but don't fail the entire batch
+                    logger.warning(
+                        "Error fetching %s for file %s: %s",
+                        "thumbnail" if is_thumbnail else "media",
+                        target_id,
+                        exc
+                    )
+                    results[target_id] = None
             async with progress_lock:
                 completed += 1
                 if progress_callback:
                     progress_callback(completed / total, f"Fetched media {completed}/{total}")
 
-        await asyncio.gather(*(fetch_worker(file_id) for file_id in uncached))
+        # Use return_exceptions=True to prevent one failure from stopping the entire batch
+        await asyncio.gather(
+            *(fetch_worker(file_id) for file_id in uncached),
+            return_exceptions=True
+        )
         return results
 
     async def get_files(self, parent_folder_id: str, *, per_page: int = 100, page_token=None) -> tuple:
