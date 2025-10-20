@@ -213,17 +213,22 @@ The authorization code format is incorrect.
         self.drive_cache.cache_media(cache_key, media_type, media_content)
 
     def _download_file_media(self, file_id: str, is_thumbnail: bool) -> Optional[bytes]:
+        if not self.service:
+            logger.error("Google Drive service is not initialized.")
+            return None
+
         try:
+            # Try thumbnail URL first for thumbnails
             if is_thumbnail:
-                thumbnail_url = f"https://drive.google.com/thumbnail?id={file_id}&sz=w250"
-                response = requests.get(thumbnail_url, timeout=15)
-                if response.status_code == 200 and response.content:
-                    return response.content
+                try:
+                    thumbnail_url = f"https://drive.google.com/thumbnail?id={file_id}&sz=w250"
+                    response = requests.get(thumbnail_url, timeout=15)
+                    if response.status_code == 200 and response.content:
+                        return response.content
+                except (requests.Timeout, requests.RequestException) as e:
+                    logger.debug("Failed to get thumbnail via URL, falling back to service: %s", e)
 
-            if not self.service:
-                logger.error("Google Drive service is not initialized.")
-                return None
-
+            # Use service.files().get_media() for both full media and thumbnail fallback
             return self.service.files().get_media(fileId=file_id).execute()
         except Exception as exc:
             logger.error(
