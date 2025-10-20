@@ -1,3 +1,6 @@
+from typing import Dict, List, Optional, Union, Any, TYPE_CHECKING
+if TYPE_CHECKING:
+    import numpy as np
 """Base class for storage providers."""
 
 import logging
@@ -38,8 +41,13 @@ class BaseStorageProvider(ABC):
         """Authenticate with the storage provider"""
 
     @abstractmethod
-    def get_directory_input_widget(self):
-        """Return the appropriate Streamlit widget for directory input"""
+    def get_directory_input_widget(self) -> Optional[Dict[str, Any]]:
+        """Return the appropriate Streamlit widget for directory input
+
+        Returns:
+            A dict containing directory/folder selection information (implementation-specific)
+            or None when no widget/value is available.
+        """
 
     @abstractmethod
     def scan_directory(self, directory: dict, filters: ScanFilterOptions, update_progress=None) -> Dict[str, List[dict]]:
@@ -79,8 +87,11 @@ class BaseStorageProvider(ABC):
         """Get the formatted file path for display"""
 
     @abstractmethod
-    def preview_file(self, file: dict):
-        """Preview file content"""
+    def preview_file(self, file: dict) -> None:
+        """Preview file content
+
+        Implementations perform UI rendering and return None.
+        """
 
     def get_scan_success_msg(self, duplicate_groups: int, duplicate_files: int) -> str:  # pylint: disable=unused-argument
         """Returns custom success message after scan completion
@@ -205,8 +216,13 @@ class BaseFile(dict, ABC):
         pass
 
     @abstractmethod
-    def get_image(self):
-        """Return image data (implementation-specific format)."""
+    def get_image(self) -> Optional[Union[bytes, 'np.ndarray']]:
+        """Return image data (implementation-specific format).
+
+        Common implementations return a grayscale numpy ndarray. Some
+        implementations may return raw bytes. Return None when image data
+        is not available.
+        """
         pass
 
     def is_image_file(self) -> bool:
