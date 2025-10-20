@@ -94,6 +94,26 @@ class BaseStorageProvider(ABC):
         """
         return f"Found {duplicate_groups} groups of duplicates."
 
+    @abstractmethod
+    def _find_duplicates_exact(
+        self,
+        all_files: List[dict],
+        filters: ScanFilterOptions,
+        update_progress=None
+    ) -> Dict[str, List[dict]]:
+        """Find exact duplicate files by comparing hashes.
+
+        Args:
+            all_files: List of file dictionaries to analyze
+            filters: Filter options for file scanning
+            update_progress: Optional callback for progress updates (progress: float, status: str)
+
+        Returns:
+            Dictionary mapping hash/group ID to list of duplicate files.
+            Only groups with more than one file should be included.
+        """
+        pass
+
     def _find_duplicates_similar(self, all_files: List[dict], filters: ScanFilterOptions, exact_groups, update_progress=None) -> dict:
         """Run SimilarityDetector on provided file entries and return similar groups."""
         logger.info("Using similarity detection with threshold: %s", filters.similarity_threshold)
@@ -160,27 +180,33 @@ class BaseFile(dict, ABC):
         self._text_extensions = {'.txt', '.md', '.py', '.js', '.html', '.css', '.json', '.xml', '.csv'}
 
     @abstractmethod
-    def get_id() -> str:
+    def get_id(self) -> str:
+        """Return unique identifier for this file."""
         pass
 
     @abstractmethod
     def get_extension(self) -> str:
+        """Return file extension (e.g., '.jpg', '.pdf')."""
         pass
 
     @abstractmethod
     def get_file_hash(self) -> str:
+        """Return MD5 hash or fallback identifier for this file."""
         pass
 
     @abstractmethod
     def get_name(self, with_extension: bool = True) -> str:
+        """Return file name, optionally without extension."""
         pass
 
     @abstractmethod
     def get_content(self) -> Optional[bytes]:
+        """Return file content as bytes, or None if unavailable."""
         pass
 
     @abstractmethod
-    def get_image():
+    def get_image(self):
+        """Return image data (implementation-specific format)."""
         pass
 
     def is_image_file(self) -> bool:
