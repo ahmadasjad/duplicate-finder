@@ -89,3 +89,14 @@ GDRIVE_DEFAULT_MEDIA_CONCURRENCY = _get_int_env(
     "GDRIVE_DEFAULT_MEDIA_CONCURRENCY",
     16,
 )
+
+# Memory management settings for Google Drive prefetch operations
+GDRIVE_PREFETCH_BATCH_SIZE = _get_int_env(
+    "GDRIVE_PREFETCH_BATCH_SIZE",
+    10,  # Process 10 files at a time by default
+)
+
+GDRIVE_PREFETCH_MAX_MEMORY_MB = _get_int_env(
+    "GDRIVE_PREFETCH_MAX_MEMORY_MB",
+    500,  # 500MB maximum memory usage by default
+)

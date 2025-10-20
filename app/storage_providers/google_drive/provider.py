@@ -12,7 +12,11 @@ import requests
 import streamlit as st
 
 from .google_utils import extract_file_id_and_name, get_enriched_file_info, CREDENTIALS_FILE
-from ...config import GDRIVE_SCAN_MEDIA_PREFETCH_PROGRESS_PORTION
+from ...config import (
+    GDRIVE_SCAN_MEDIA_PREFETCH_PROGRESS_PORTION,
+    GDRIVE_PREFETCH_BATCH_SIZE,
+    GDRIVE_PREFETCH_MAX_MEMORY_MB,
+)
 from ..base import BaseStorageProvider, ScanFilterOptions, BaseFile
 from ..exceptions import NoDuplicateException, NoFileFoundException
 from ...utils import get_thumbnail_from_image_data
@@ -217,6 +221,9 @@ class GoogleDriveProvider(BaseStorageProvider):
         if not files:
             return
 
+        # Configuration for batch processing
+        BATCH_SIZE = GDRIVE_PREFETCH_BATCH_SIZE
+
         file_ids = [
             file_obj.get('id')
             for file_obj in files
@@ -237,25 +244,59 @@ class GoogleDriveProvider(BaseStorageProvider):
             scaled = progress_offset + progress_span * progress
             update_progress(min(scaled, 0.95), status or "Downloading media from Google Drive")
 
-        try:
-            media_map = self._run_coroutine(
-                self.google_service.prefetch_media(
-                    file_ids,
-                    is_thumbnail=False,
-                    progress_callback=progress_callback,
-                )
-            ) or {}
-        except Exception as exc:
-            logger.exception("Failed to prefetch Google Drive media: %s", exc)
-            return
+        # Process files in batches
+        for i in range(0, len(file_ids), BATCH_SIZE):
+            batch = file_ids[i:i + BATCH_SIZE]
+            batch_progress = i / len(file_ids)
 
-        for file_obj in files:
-            file_id = file_obj.get('id')
-            if not file_id:
+            if update_progress:
+                update_progress(progress_offset + progress_span * batch_progress,
+                              f"Downloading batch {i//BATCH_SIZE + 1}/{(len(file_ids) + BATCH_SIZE - 1)//BATCH_SIZE}...")
+
+            try:
+                # Check cache first for each file in batch
+                uncached_ids = []
+                for file_id in batch:
+                    cached_media = self.google_service.drive_cache.get_cached_media(file_id)
+                    if cached_media is not None:
+                        # If found in cache, update the file object with reference
+                        for file_obj in files:
+                            if file_obj.get('id') == file_id:
+                                file_obj['_prefetched_media'] = cached_media
+                                break
+                    else:
+                        uncached_ids.append(file_id)
+
+                # Only fetch uncached files
+                if uncached_ids:
+                    media_map = self._run_coroutine(
+                        self.google_service.prefetch_media(
+                            uncached_ids,
+                            is_thumbnail=False,
+                            progress_callback=lambda p, s: progress_callback(batch_progress + (p * len(uncached_ids)/len(file_ids)), s),
+                        )
+                    ) or {}
+
+                    # Store fetched media in cache and update file objects with references
+                    for file_obj in files[i:i + BATCH_SIZE]:
+                        file_id = file_obj.get('id')
+                        if not file_id or file_id not in media_map:
+                            continue
+
+                        media_bytes = media_map.get(file_id)
+                        if media_bytes is not None:
+                            # Store in cache instead of memory
+                            self.google_service.drive_cache.cache_media(
+                                file_id,
+                                file_obj.get('mimeType'),
+                                media_bytes
+                            )
+                            # Update file object with reference to the same media bytes
+                            file_obj['_prefetched_media'] = media_bytes
+
+            except Exception as exc:
+                logger.exception("Failed to prefetch batch of Google Drive media: %s", exc)
                 continue
-            media_bytes = media_map.get(file_id)
-            if media_bytes is not None:
-                file_obj['_prefetched_media'] = media_bytes
 
         if update_progress:
             update_progress(progress_offset + progress_span, "Media download completed")
