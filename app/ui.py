@@ -11,6 +11,12 @@ from app.storage_providers import get_storage_providers, get_provider_info
 from app.storage_providers.base import ScanFilterOptions
 from app.storage_providers.exceptions import NoDuplicateException, NoFileFoundException
 
+# Optional mount manager for Google Drive (import lazily and handle failure gracefully)
+try:
+    from app.storage_providers.google_drive import mount_manager as gdrive_mount_manager
+except Exception:
+    gdrive_mount_manager = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -75,8 +81,45 @@ class DuplicateFinderUI:
             # Show authentication status
             selected_provider = providers[selected_provider_name]
             info = provider_info.get(selected_provider_name, {})
-            if info.get("requires_auth", False) and not selected_provider.authenticate():
-                st.caption("⚠️ Authentication required")
+            is_auth = False
+            if info.get("requires_auth", False):
+                is_auth = selected_provider.authenticate()
+                if not is_auth:
+                    st.caption("⚠️ Authentication required")
+
+            # Google Drive mount/unmount controls (only available when authenticated)
+            if selected_provider_name == "Google Drive" and is_auth:
+                try:
+                    if gdrive_mount_manager is None:
+                        st.info("Mount helper not available in this environment.")
+                    else:
+                        status = gdrive_mount_manager.get_mount_status()
+                        mounted = bool(status.get("mounted"))
+                        mount_path = status.get("mount_path", "/mnt/gdrive")
+                        st.markdown("### Google Drive Mount")
+                        if not mounted:
+                            if st.button("🔗 Mount Google Drive"):
+                                success = gdrive_mount_manager.mount_google_drive()
+                                # re-check status after attempt
+                                status = gdrive_mount_manager.get_mount_status()
+                                mounted = bool(status.get("mounted"))
+                                if success and mounted:
+                                    st.success(f"Mounted at {mount_path}")
+                                    st.session_state.gdrive_mounted = True
+                                    st.experimental_rerun()
+                                else:
+                                    st.error("Failed to mount Google Drive. Check container logs (/var/log/rclone-mount.log).")
+                        else:
+                            st.success(f"✅ Mounted at {mount_path}")
+                            if st.button("📤 Unmount Google Drive"):
+                                if gdrive_mount_manager.unmount_google_drive():
+                                    st.success("Unmounted Google Drive")
+                                    st.session_state.gdrive_mounted = False
+                                    st.experimental_rerun()
+                                else:
+                                    st.error("Failed to unmount Google Drive. Check container logs.")
+                except Exception as e:
+                    logger.debug("Mount manager error: %s", e)
 
             return selected_provider_name
 

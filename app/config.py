@@ -100,3 +100,16 @@ GDRIVE_PREFETCH_MAX_MEMORY_MB = _get_int_env(
     "GDRIVE_PREFETCH_MAX_MEMORY_MB",
     500,  # 500MB maximum memory usage by default
 )
+
+# Rclone / Google Drive mount configuration (environment-overridable)
+# Enable/disable mounted filesystem mode
+GDRIVE_MOUNT_ENABLED = os.getenv("GDRIVE_MOUNT_ENABLED", "false").lower() in ("1", "true", "yes")
+GDRIVE_MOUNT_PATH = os.getenv("GDRIVE_MOUNT_PATH", "/mnt/gdrive")
+GDRIVE_RCLONE_REMOTE = os.getenv("GDRIVE_RCLONE_REMOTE", "gdrive")
+GDRIVE_VFS_CACHE_MODE = os.getenv("GDRIVE_VFS_CACHE_MODE", "writes")
+GDRIVE_VFS_CACHE_MAX_SIZE = os.getenv("GDRIVE_VFS_CACHE_MAX_SIZE", "1G")
+GDRIVE_VFS_READ_CHUNK_SIZE = os.getenv("GDRIVE_VFS_READ_CHUNK_SIZE", "128M")
+GDRIVE_DIR_CACHE_TIME = os.getenv("GDRIVE_DIR_CACHE_TIME", "5m")
+GDRIVE_POLL_INTERVAL = os.getenv("GDRIVE_POLL_INTERVAL", "15s")
+RCLONE_CONFIG_FILE = os.getenv("RCLONE_CONFIG_FILE", os.path.expanduser("~/.config/rclone/rclone.conf"))
+RCLONE_BIN = os.getenv("RCLONE_BIN", "rclone")
