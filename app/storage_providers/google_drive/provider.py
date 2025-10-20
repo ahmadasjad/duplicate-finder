@@ -287,7 +287,7 @@ class GoogleDriveProvider(BaseStorageProvider):
 
         return skipped_no_hash
 
-    def _find_duplicates_exact(self, all_files: list[dict], filters: ScanFilterOptions, update_progress=None) -> Dict:
+    def find_duplicates_exact(self, all_files: list[dict], filters: ScanFilterOptions, update_progress=None) -> Dict:
         file_dict: dict[str, list[dict]] = {}
         skipped_no_hash = 0
         skipped_filters = 0

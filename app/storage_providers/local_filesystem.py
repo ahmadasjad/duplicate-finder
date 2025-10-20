@@ -173,7 +173,7 @@ class LocalFileSystemProvider(BaseStorageProvider):
         except (OSError, IOError):
             return None
 
-    def _find_duplicates_exact(
+    def find_duplicates_exact(
         self,
         all_files: List[dict],
         filters: ScanFilterOptions,

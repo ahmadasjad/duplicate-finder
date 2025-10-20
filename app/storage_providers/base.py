@@ -95,7 +95,7 @@ class BaseStorageProvider(ABC):
         return f"Found {duplicate_groups} groups of duplicates."
 
     @abstractmethod
-    def _find_duplicates_exact(
+    def find_duplicates_exact(
         self,
         all_files: List[dict],
         filters: ScanFilterOptions,
@@ -114,7 +114,7 @@ class BaseStorageProvider(ABC):
         """
         pass
 
-    def _find_duplicates_similar(self, all_files: List[dict], filters: ScanFilterOptions, exact_groups, update_progress=None) -> dict:
+    def find_duplicates_similar(self, all_files: List[dict], filters: ScanFilterOptions, exact_groups, update_progress=None) -> dict:
         """Run SimilarityDetector on provided file entries and return similar groups."""
         logger.info("Using similarity detection with threshold: %s", filters.similarity_threshold)
 
@@ -160,14 +160,14 @@ class BaseStorageProvider(ABC):
     def find_duplicates(self, all_files: List[dict], filters: ScanFilterOptions, update_progress = None) -> Dict:
         """Find duplicate files in the storage provider."""
 
-        exact_groups = self._find_duplicates_exact(all_files, filters, update_progress=update_progress)
+        exact_groups = self.find_duplicates_exact(all_files, filters, update_progress=update_progress)
 
         # If similarity is not enabled or threshold is exact, return exact groups
         if not (filters.enable_similarity_detection and filters.similarity_threshold < 1.0):
             return exact_groups
 
         # Run similarity across remaining files
-        similar_groups = self._find_duplicates_similar(all_files, filters, exact_groups, update_progress=update_progress)
+        similar_groups = self.find_duplicates_similar(all_files, filters, exact_groups, update_progress=update_progress)
         logger.info("Found %d similar groups", len(similar_groups))
 
         return self._merge_exact_and_similar(exact_groups, similar_groups)
