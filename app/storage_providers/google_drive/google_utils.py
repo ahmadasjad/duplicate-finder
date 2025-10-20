@@ -256,13 +256,25 @@ The authorization code format is incorrect.
 
             # Use service.files().get_media() for both full media and thumbnail fallback
             try:
-                # Get file metadata first to check size
-                file_metadata = self.service.files().get(fileId=file_id, fields="size").execute()
-                if file_metadata and 'size' in file_metadata:
-                    file_size = int(file_metadata['size'])
-                    if file_size > MAX_FILE_SIZE:
-                        logger.warning(f"File {file_id} too large: {file_size} bytes")
-                        return None
+                # Check file size from cache first, then API if not available
+                file_size = None
+                cached_metadata = self.drive_cache.get_cached_file_details(file_id)
+
+                if cached_metadata and 'size' in cached_metadata:
+                    file_size = int(cached_metadata['size'])
+                    logger.debug(f"Using cached size for file {file_id}: {file_size} bytes")
+                else:
+                    # Get file metadata from API to check size
+                    file_metadata = self.service.files().get(fileId=file_id, fields="size,id,name,mimeType").execute()
+                    if file_metadata:
+                        # Cache the metadata for future use
+                        self.drive_cache.cache_file_details(file_metadata)
+                        if 'size' in file_metadata:
+                            file_size = int(file_metadata['size'])
+
+                if file_size and file_size > MAX_FILE_SIZE:
+                    logger.warning(f"File {file_id} too large: {file_size} bytes")
+                    return None
 
                 # Download the file with size limit
                 request = self.service.files().get_media(fileId=file_id)
@@ -314,7 +326,7 @@ The authorization code format is incorrect.
     ) -> Dict[str, Optional[bytes]]:
         # Process one file at a time to prevent SSL/memory issues
         MAX_RETRIES = 3
-        DELAY_BETWEEN_FILES = 0.5  # seconds
+        DELAY_BETWEEN_FILES = 0.02  # seconds
 
         unique_ids: List[str] = []
         seen = set()
