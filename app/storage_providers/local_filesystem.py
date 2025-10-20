@@ -12,6 +12,7 @@ from app.utils import get_file_info
 from app.preview import preview_file_inline
 from app.similarity import SimilarityDetector, SimilarityConfig, SimilarityMethod
 from .base import BaseStorageProvider, ScanFilterOptions, BaseFile
+from .exceptions import NoDuplicateException, NoFileFoundException
 
 logger = logging.getLogger(__name__)
 
@@ -206,42 +207,60 @@ class LocalFileSystemProvider(BaseStorageProvider):
         if not folder_path or not os.path.exists(folder_path):
             return {}
 
-        # Collect all valid files first
-        all_files: List[dict] = []
-        for root, _, files in os.walk(folder_path):
-            for file in files:
-                file_path = os.path.join(root, file)
+        # Initial status message
+        if update_progress:
+            update_progress(0.0, "🔍 Scanning local directory for files...")
 
-                # Skip files based on filters
-                if filters.exclude_shortcuts and is_file_shortcut(file_path, file):
-                    continue
-                if filters.exclude_hidden and is_file_hidden(file_path, file):
-                    continue
-                if filters.exclude_system and is_file_for_system(file_path, file):
-                    continue
+        try:
+            # Collect all valid files first
+            all_files: List[dict] = []
+            for root, _, files in os.walk(folder_path):
+                for file in files:
+                    file_path = os.path.join(root, file)
 
-                # Check file size
-                try:
-                    file_size = os.path.getsize(file_path) / 1024  # Convert to KB
-                    if file_size < filters.min_size_kb:
+                    # Skip files based on filters
+                    if filters.exclude_shortcuts and is_file_shortcut(file_path, file):
                         continue
-                    if filters.max_size_kb > 0 and file_size > filters.max_size_kb:
+                    if filters.exclude_hidden and is_file_hidden(file_path, file):
                         continue
-                except OSError:
-                    continue
+                    if filters.exclude_system and is_file_for_system(file_path, file):
+                        continue
 
-                # Skip subfolders if not requested
-                if not filters.include_subfolders and root != folder_path:
-                    continue
+                    # Check file size
+                    try:
+                        file_size = os.path.getsize(file_path) / 1024  # Convert to KB
+                        if file_size < filters.min_size_kb:
+                            continue
+                        if filters.max_size_kb > 0 and file_size > filters.max_size_kb:
+                            continue
+                    except OSError:
+                        continue
 
-                # Python
-                lf = LocalFile({'path': file_path, 'id': file_path})
-                # logger.debug("scan_directory: appending file path=%s type=%s is_dict=%s repr=%s",
-                #             file_path, type(lf), isinstance(lf, dict), lf)
-                all_files.append(lf)
+                    # Skip subfolders if not requested
+                    if not filters.include_subfolders and root != folder_path:
+                        continue
 
+                    # Python
+                    lf = LocalFile({'path': file_path, 'id': file_path})
+                    # logger.debug("scan_directory: appending file path=%s type=%s is_dict=%s repr=%s",
+                    #             file_path, type(lf), isinstance(lf, dict), lf)
+                    all_files.append(lf)
 
-        return self.find_duplicates(all_files, filters, update_progress=update_progress)
+            if not all_files:
+                from .exceptions import NoFileFoundException
+                raise NoFileFoundException("No files found in the selected directory")
+
+            if update_progress:
+                update_progress(0.1, f"Found {len(all_files)} files. Analyzing for duplicates...")
+
+            return self.find_duplicates(all_files, filters, update_progress=update_progress)
+
+        except (NoFileFoundException, NoDuplicateException) as e:
+            raise e  # Forward the exception
+        except Exception as e:
+            st.error("Error scanning local directory")
+            logger.exception(e)
+            return {}
 
     def delete_files(self, files: List[dict]) -> bool:
         """Delete selected files"""
