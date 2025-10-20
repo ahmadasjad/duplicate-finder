@@ -6,7 +6,6 @@ including token generation, refresh, and validation.
 
 import logging
 import os
-from abc import ABC
 
 import streamlit as st
 from googleapiclient.discovery import build
@@ -16,8 +15,11 @@ from .google_utils import GoogleService, TOKEN_FILE
 logger = logging.getLogger(__name__)
 
 
-class GoogleAuthenticator(ABC):
-    """Handles Google Drive OAuth2 authentication and user info retrieval."""
+class GoogleAuthenticator:
+    """Handles Google Drive OAuth2 authentication and user info retrieval.
+
+    This is a regular class providing authentication functionality through composition.
+    """
     def __init__(self):
         self.google_service = GoogleService()
 
@@ -70,7 +72,7 @@ class GoogleAuthenticator(ABC):
 
         return False
 
-    def _handle_authentication_flow(self):
+    def handle_authentication_flow(self):
         """Handle authentication UI and logic."""
         if not os.path.exists(TOKEN_FILE):
             st.info("🔐 **Easy Authentication Setup**")
@@ -113,7 +115,7 @@ class GoogleAuthenticator(ABC):
             st.rerun()
         return True
 
-    def _get_user_info(self):
+    def get_user_info(self):
         """Get user information from Google Drive API"""
         def get_drive_api_info():
             about = self.google_service.service.about().get(fields="user").execute()

@@ -1,9 +1,13 @@
 """Base class for storage providers."""
 
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Dict, List
+from typing import Dict, List, Optional
+from app.similarity import SimilarityDetector, SimilarityConfig, SimilarityMethod
+from app.storage_providers.exceptions import NoDuplicateException
 
+logger = logging.getLogger(__name__)
 
 @dataclass
 class ScanFilterOptions:
@@ -14,6 +18,13 @@ class ScanFilterOptions:
     min_size_kb: int = 0
     max_size_kb: int = 0
     include_subfolders: bool = True
+    # Similarity detection options
+    similarity_threshold: float = 1.0  # 1.0 = exact match, 0.95 = 95% similar, etc.
+    enable_similarity_detection: bool = False
+    enable_perceptual_hash: bool = True
+    enable_content_similarity: bool = True
+    enable_image_similarity: bool = True
+    enable_filename_similarity: bool = False
 
 
 class BaseStorageProvider(ABC):
@@ -31,7 +42,7 @@ class BaseStorageProvider(ABC):
         """Return the appropriate Streamlit widget for directory input"""
 
     @abstractmethod
-    def scan_directory(self, directory: dict, filters: ScanFilterOptions) -> Dict[str, List[dict]]:
+    def scan_directory(self, directory: dict, filters: ScanFilterOptions, update_progress=None) -> Dict[str, List[dict]]:
         """Scan directory and return duplicate file groups
 
         Args:
@@ -82,3 +93,155 @@ class BaseStorageProvider(ABC):
             A formatted success message string
         """
         return f"Found {duplicate_groups} groups of duplicates."
+
+    @abstractmethod
+    def find_duplicates_exact(
+        self,
+        all_files: List[dict],
+        filters: ScanFilterOptions,
+        update_progress=None
+    ) -> Dict[str, List[dict]]:
+        """Find exact duplicate files by comparing hashes.
+
+        Args:
+            all_files: List of file dictionaries to analyze
+            filters: Filter options for file scanning
+            update_progress: Optional callback for progress updates (progress: float, status: str)
+
+        Returns:
+            Dictionary mapping hash/group ID to list of duplicate files.
+            Only groups with more than one file should be included.
+        """
+        pass
+
+    def find_duplicates_similar(self, all_files: List[dict], filters: ScanFilterOptions, exact_groups, update_progress=None) -> dict:
+        """Run SimilarityDetector on provided file entries and return similar groups."""
+        logger.info("Using similarity detection with threshold: %s", filters.similarity_threshold)
+
+        # Remove all but one file from each exact group from all_files
+        exact_file_paths = set()
+        for group in exact_groups.values():
+            # Keep the first file, remove the rest
+            for file in group[1:]:
+                exact_file_paths.add(file.get_id())
+        filtered_files = [f for f in all_files if f.get_id() not in exact_file_paths]
+
+        similarity_config = SimilarityConfig(
+            threshold=filters.similarity_threshold,
+            enable_perceptual_hash=filters.enable_perceptual_hash,
+            enable_content_similarity=filters.enable_content_similarity,
+            enable_image_similarity=filters.enable_image_similarity,
+            enable_filename_similarity=filters.enable_filename_similarity
+        )
+        detector = SimilarityDetector(similarity_config)
+        # SimilarityDetector expects entries with 'path' key
+        return detector.find_similar_files(filtered_files, update_progress=update_progress)
+
+    def _merge_exact_and_similar(self, exact_groups: dict, similar_groups: dict) -> dict:
+        """Merge exact and similar duplicate groups into a single dictionary."""
+        merged = {}
+        idx = 1
+
+        # Add exact groups first
+        for group in exact_groups.values():
+            merged[f"group_{idx}"] = group
+            idx += 1
+
+        # Add similar groups next
+        for group in similar_groups.values():
+            merged[f"group_{idx}"] = group
+            idx += 1
+
+        if not merged:
+            raise NoDuplicateException("No duplicate files found in the selected folder.")
+
+        return merged
+
+    def find_duplicates(self, all_files: List[dict], filters: ScanFilterOptions, update_progress = None) -> Dict:
+        """Find duplicate files in the storage provider."""
+
+        exact_groups = self.find_duplicates_exact(all_files, filters, update_progress=update_progress)
+
+        # If similarity is not enabled or threshold is exact, return exact groups
+        if not (filters.enable_similarity_detection and filters.similarity_threshold < 1.0):
+            return exact_groups
+
+        # Run similarity across remaining files
+        similar_groups = self.find_duplicates_similar(all_files, filters, exact_groups, update_progress=update_progress)
+        logger.info("Found %d similar groups", len(similar_groups))
+
+        return self._merge_exact_and_similar(exact_groups, similar_groups)
+
+
+class BaseFile(dict, ABC):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff', '.webp'}
+        self._text_extensions = {'.txt', '.md', '.py', '.js', '.html', '.css', '.json', '.xml', '.csv'}
+
+    @abstractmethod
+    def get_id(self) -> str:
+        """Return unique identifier for this file."""
+        pass
+
+    @abstractmethod
+    def get_extension(self) -> str:
+        """Return file extension (e.g., '.jpg', '.pdf')."""
+        pass
+
+    @abstractmethod
+    def get_file_hash(self) -> str:
+        """Return MD5 hash or fallback identifier for this file."""
+        pass
+
+    @abstractmethod
+    def get_name(self, with_extension: bool = True) -> str:
+        """Return file name, optionally without extension."""
+        pass
+
+    @abstractmethod
+    def get_content(self) -> Optional[bytes]:
+        """Return file content as bytes, or None if unavailable."""
+        pass
+
+    @abstractmethod
+    def get_image(self):
+        """Return image data (implementation-specific format)."""
+        pass
+
+    def is_image_file(self) -> bool:
+        """Check if file is an image."""
+        return self.get_extension() in self._image_extensions
+
+    def is_text_file(self) -> bool:
+        """Check if file is a text file."""
+        return self.get_extension() in self._text_extensions
+
+    def get_path(self) -> str:
+        return self.get('path', '')
+
+    # ✅ Example custom helpers
+    def get_keys(self):
+        return list(self.keys())
+
+    def get_values(self):
+        return list(self.values())
+
+    def get_items(self):
+        return list(self.items())
+
+    def find_by_value(self, value):
+        """Return list of keys matching the given value"""
+        return [k for k, v in self.items() if v == value]
+
+    def merge(self, other):
+        """Merge another dict or SmartDict"""
+        self.update(other)
+        return self
+
+    def to_dict(self):
+        """Return a plain dict copy (useful if further conversion needed)"""
+        return dict(self)
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}({super().__repr__()})"

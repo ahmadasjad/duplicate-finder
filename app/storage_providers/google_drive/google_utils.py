@@ -1,8 +1,9 @@
 import os
 import logging
 import requests
+import asyncio
 
-from typing import Union
+from typing import Dict, Iterable, List, Optional, Union
 import streamlit as st
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
@@ -21,6 +22,9 @@ SCOPES = [
     ]
 
 class GoogleService():
+    fresh_media_hit_count = 0
+    _DEFAULT_MEDIA_CONCURRENCY = 16
+
     def __init__(self):
         self.authenticated = False
         self.credentials = None
@@ -195,6 +199,130 @@ The authorization code format is incorrect.
     def get_file_service(self):
         logger.debug("Getting Google Drive file service")
         return self.service.files()
+
+    def _media_cache_key(self, file_id: str, is_thumbnail: bool) -> str:
+        suffix = "_thumb" if is_thumbnail else ""
+        return f"{file_id}{suffix}"
+
+    def _get_cached_media(self, cache_key: str) -> Optional[bytes]:
+        return self.drive_cache.get_cached_media(cache_key)
+
+    def _cache_media(self, cache_key: str, media_type: Optional[str], media_content: bytes) -> None:
+        self.drive_cache.cache_media(cache_key, media_type, media_content)
+
+    def _download_file_media(self, file_id: str, is_thumbnail: bool) -> Optional[bytes]:
+        try:
+            if is_thumbnail:
+                thumbnail_url = f"https://drive.google.com/thumbnail?id={file_id}&sz=w250"
+                response = requests.get(thumbnail_url, timeout=15)
+                if response.status_code == 200 and response.content:
+                    return response.content
+
+            if not self.service:
+                logger.error("Google Drive service is not initialized.")
+                return None
+
+            return self.service.files().get_media(fileId=file_id).execute()
+        except Exception as exc:
+            logger.error(
+                "Failed to get %s for file %s: %s",
+                "thumbnail" if is_thumbnail else "media",
+                file_id,
+                exc
+            )
+            return None
+
+    def _fetch_and_cache_media(self, file_id: str, is_thumbnail: bool) -> Optional[bytes]:
+        cache_key = self._media_cache_key(file_id, is_thumbnail)
+        cached_media = self._get_cached_media(cache_key)
+        if cached_media is not None:
+            return cached_media
+
+        media_content = self._download_file_media(file_id, is_thumbnail)
+        if media_content is not None:
+            self._cache_media(cache_key, None, media_content)
+            type(self).fresh_media_hit_count += 1
+            logger.debug("Total fresh media hits: %d", self.fresh_media_hit_count)
+        return media_content
+
+    async def prefetch_media(
+        self,
+        file_ids: Iterable[str],
+        *,
+        is_thumbnail: bool = False,
+        concurrency: Optional[int] = None,
+        progress_callback=None
+    ) -> Dict[str, Optional[bytes]]:
+        unique_ids: List[str] = []
+        seen = set()
+        for raw_id in file_ids or []:
+            if not raw_id:
+                continue
+            if raw_id in seen:
+                continue
+            seen.add(raw_id)
+            unique_ids.append(raw_id)
+
+        if not unique_ids:
+            return {}
+
+        results: Dict[str, Optional[bytes]] = {}
+        uncached: List[str] = []
+
+        for file_id in unique_ids:
+            cache_key = self._media_cache_key(file_id, is_thumbnail)
+            cached = self._get_cached_media(cache_key)
+            if cached is not None:
+                results[file_id] = cached
+            else:
+                uncached.append(file_id)
+
+        if not uncached:
+            return results
+
+        concurrency = concurrency or self._DEFAULT_MEDIA_CONCURRENCY
+        semaphore = asyncio.Semaphore(max(1, concurrency))
+        loop = asyncio.get_running_loop()
+        completed = 0
+        total = len(uncached)
+        progress_lock = asyncio.Lock()
+
+        async def fetch_worker(target_id: str):
+            nonlocal completed
+            async with semaphore:
+                try:
+                    media_content = await loop.run_in_executor(
+                        None,
+                        self._fetch_and_cache_media,
+                        target_id,
+                        is_thumbnail,
+                    )
+                    if media_content is not None:
+                        results[target_id] = media_content
+                    else:
+                        # Store None to indicate failure but continue processing
+                        results[target_id] = None
+                        logger.debug("Failed to fetch media for file %s", target_id)
+                except Exception as exc:
+                    # Log error but don't fail the entire batch
+                    logger.warning(
+                        "Error fetching %s for file %s: %s",
+                        "thumbnail" if is_thumbnail else "media",
+                        target_id,
+                        exc
+                    )
+                    results[target_id] = None
+            async with progress_lock:
+                completed += 1
+                if progress_callback:
+                    progress_callback(completed / total, f"Fetched media {completed}/{total}")
+
+        # Use return_exceptions=True to prevent one failure from stopping the entire batch
+        await asyncio.gather(
+            *(fetch_worker(file_id) for file_id in uncached),
+            return_exceptions=True
+        )
+        return results
 
     async def get_files(self, parent_folder_id: str, *, per_page: int = 100, page_token=None) -> tuple:
         return await self.get_files_and_folders(
@@ -412,47 +540,9 @@ The authorization code format is incorrect.
         Args:
             file_id: The ID of the Google Drive file
             is_thumbnail: If True, fetch/cache thumbnail instead of full media
-
-        Returns:
-            tuple: (media_type, media_content)
         """
-        cache_id = f"{file_id}_thumb" if is_thumbnail else file_id
-        logger.debug("Cache hit for media %s", file_id)
+        return self._fetch_and_cache_media(file_id, is_thumbnail)
 
-        # First check the cache
-        media_content = self.drive_cache.get_cached_media(cache_id)
-
-        if media_content is not None:
-            logger.debug("Media content found in cache for file %s", file_id)
-            logger.debug("media_content: %s", media_content[:100])  # Log first 100 bytes
-            return media_content
-
-        try:
-            logger.debug("Not found in cache, fetching from Google Drive")
-            media_type: Union[str, None] = None
-            if is_thumbnail:
-                # Try to get thumbnail from Google Drive's thumbnail API
-                thumbnail_url = f"https://drive.google.com/thumbnail?id={file_id}&sz=w250"
-                response = requests.head(thumbnail_url, timeout=10)
-
-                if response.status_code == 200:
-                    media_content = response.content
-                    return media_content
-            # Get full media content
-            media_content = self.service.files().get_media(fileId=file_id).execute()
-
-            # Cache the media content
-            self.drive_cache.cache_media(
-                file_id=cache_id,
-                media_type=media_type,
-                media_content=media_content
-            )
-
-            return media_content
-
-        except Exception as e:
-            logger.error(f"Failed to get {'thumbnail' if is_thumbnail else 'media'} for file {file_id}: {e}")
-            return None
 
 
 def extract_file_id_and_name(file: dict) -> tuple[str, str]:

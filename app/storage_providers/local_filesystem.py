@@ -3,15 +3,63 @@
 import os
 import hashlib
 import logging
-from typing import Dict, List, Union
+from typing import Dict, List, Tuple, Union, Optional, Set
 import streamlit as st
+import cv2
 
 from app.file_operations import is_file_shortcut, is_file_hidden, is_file_for_system
 from app.utils import get_file_info
 from app.preview import preview_file_inline
-from .base import BaseStorageProvider, ScanFilterOptions
+from app.similarity import SimilarityDetector, SimilarityConfig, SimilarityMethod
+from .base import BaseStorageProvider, ScanFilterOptions, BaseFile
+from .exceptions import NoDuplicateException, NoFileFoundException
 
 logger = logging.getLogger(__name__)
+
+
+class LocalFile(BaseFile):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def get_id(self) -> str:
+        return self.get('path', '')
+
+    def get_extension(self) -> str:
+        file_path = self.get('path', '')
+        ext = os.path.splitext(file_path)[1].lower()
+        return ext
+
+    def get_name(self, with_extension: bool = True) -> str:
+        base_name = os.path.basename(self.get_path())
+        if not with_extension:
+            base_name = os.path.splitext(base_name)[0]
+        return base_name
+
+    def get_file_hash(self) -> Optional[str]:
+        """Compute MD5 hash of a file."""
+        try:
+            hash_obj = hashlib.md5()
+            with open(self.get_path(), 'rb') as f:
+                for chunk in iter(lambda: f.read(4096), b""):
+                    hash_obj.update(chunk)
+            return hash_obj.hexdigest()
+        except (OSError, IOError):
+            return None
+
+    def get_content(self) -> Optional[bytes]:
+        """Return file content as bytes. Reads from path obtained via get_path."""
+        try:
+            with open(self.get_path(), 'rb') as f:
+                return f.read()
+        except (OSError, IOError) as e:
+            logger.debug(f"Error reading file content for {self.get_path()}: {e}")
+            return None
+
+    def get_image(self):
+        img = cv2.imread(self.get_path(), cv2.IMREAD_GRAYSCALE)
+        if img is None:
+            raise FileNotFoundError(f"Could not read {self.get_path()}")
+        return img
 
 
 class LocalFileSystemProvider(BaseStorageProvider):
@@ -125,43 +173,94 @@ class LocalFileSystemProvider(BaseStorageProvider):
         except (OSError, IOError):
             return None
 
-    def scan_directory(self, directory: dict, filters: ScanFilterOptions) -> Dict[str, List[dict]]:
+    def find_duplicates_exact(
+        self,
+        all_files: List[dict],
+        filters: ScanFilterOptions,
+        *,
+        update_progress=None,
+    ) -> dict:
+        """Find exact duplicates by MD5 and return groups of matching files."""
+        file_dict: dict[str, list[dict]] = {}
+        total_files = len(all_files)
+
+        for index, file_info in enumerate(all_files):
+            file_path = file_info['path']
+            file_hash = self.get_file_hash(file_path)
+            if file_hash:
+                file_dict.setdefault(file_hash, []).append(file_info)
+
+            if update_progress and total_files > 0 and index % 20 == 0:
+                progress = (index + 1) / total_files
+                update_progress(progress, f"Hashing files {index + 1}/{total_files}")
+
+        exact_groups = {hash_key: files for hash_key, files in file_dict.items() if len(files) > 1}
+
+        if update_progress and total_files > 0:
+            update_progress(1.0, "Exact duplicate detection complete")
+
+        return exact_groups
+
+    def scan_directory(self, directory: dict, filters: ScanFilterOptions, update_progress=None) -> Dict[str, List[dict]]:
         """Scans directory and identify duplicates with optional filters."""
         folder_path = directory.get('path', '')
         if not folder_path or not os.path.exists(folder_path):
             return {}
 
-        file_dict: dict[str, list[dict]] = {}
-        for root, _, files in os.walk(folder_path):
-            for file in files:
-                file_path = os.path.join(root, file)
+        # Initial status message
+        if update_progress:
+            update_progress(0.0, "🔍 Scanning local directory for files...")
 
-                # Skip files based on filters
-                if filters.exclude_shortcuts and is_file_shortcut(file_path, file):
-                    continue
-                if filters.exclude_hidden and is_file_hidden(file_path, file):
-                    continue
-                if filters.exclude_system and is_file_for_system(file_path, file):
-                    continue
+        try:
+            # Collect all valid files first
+            all_files: List[dict] = []
+            for root, _, files in os.walk(folder_path):
+                for file in files:
+                    file_path = os.path.join(root, file)
 
-                # Check file size
-                try:
-                    file_size = os.path.getsize(file_path) / 1024  # Convert to KB
-                    if file_size < filters.min_size_kb:
+                    # Skip files based on filters
+                    if filters.exclude_shortcuts and is_file_shortcut(file_path, file):
                         continue
-                    if filters.max_size_kb > 0 and file_size > filters.max_size_kb:
+                    if filters.exclude_hidden and is_file_hidden(file_path, file):
                         continue
-                except OSError:
-                    continue
+                    if filters.exclude_system and is_file_for_system(file_path, file):
+                        continue
 
-                # Add to duplicates if it passes all filters
-                file_hash = self.get_file_hash(file_path)
-                if file_hash:
-                    if file_hash not in file_dict:
-                        file_dict[file_hash] = []
-                    file_dict[file_hash].append({'path': file_path, 'id': file_path})
+                    # Check file size
+                    try:
+                        file_size = os.path.getsize(file_path) / 1024  # Convert to KB
+                        if file_size < filters.min_size_kb:
+                            continue
+                        if filters.max_size_kb > 0 and file_size > filters.max_size_kb:
+                            continue
+                    except OSError:
+                        continue
 
-        return {k: v for k, v in file_dict.items() if len(v) > 1}
+                    # Skip subfolders if not requested
+                    if not filters.include_subfolders and root != folder_path:
+                        continue
+
+                    # Python
+                    lf = LocalFile({'path': file_path, 'id': file_path})
+                    # logger.debug("scan_directory: appending file path=%s type=%s is_dict=%s repr=%s",
+                    #             file_path, type(lf), isinstance(lf, dict), lf)
+                    all_files.append(lf)
+
+            if not all_files:
+                from .exceptions import NoFileFoundException
+                raise NoFileFoundException("No files found in the selected directory")
+
+            if update_progress:
+                update_progress(0.1, f"Found {len(all_files)} files. Analyzing for duplicates...")
+
+            return self.find_duplicates(all_files, filters, update_progress=update_progress)
+
+        except (NoFileFoundException, NoDuplicateException) as e:
+            raise e  # Forward the exception
+        except Exception as e:
+            st.error("Error scanning local directory")
+            logger.exception(e)
+            return {}
 
     def delete_files(self, files: List[dict]) -> bool:
         """Delete selected files"""
@@ -223,3 +322,22 @@ class LocalFileSystemProvider(BaseStorageProvider):
         except Exception as e:
             logger.error("Failed to create shortcut: %s", str(e))
             return False
+
+    def get_scan_success_msg(self, duplicate_groups: int, duplicate_files: int) -> str:
+        """Returns custom success message after scan completion"""
+        return f"Found {duplicate_groups} groups of similar/duplicate files containing {duplicate_files} total files."
+
+    def get_similarity_explanation(self, file1: dict, file2: dict, filters: ScanFilterOptions) -> str:
+        """Get explanation of why two files are considered similar."""
+        if not filters.enable_similarity_detection or filters.similarity_threshold >= 1.0:
+            return "Identical files (same hash)"
+
+        similarity_config = SimilarityConfig(
+            threshold=filters.similarity_threshold,
+            enable_perceptual_hash=filters.enable_perceptual_hash,
+            enable_content_similarity=filters.enable_content_similarity,
+            enable_image_similarity=filters.enable_image_similarity,
+            enable_filename_similarity=filters.enable_filename_similarity
+        )
+        detector = SimilarityDetector(similarity_config)
+        return detector.get_similarity_explanation(file1, file2)

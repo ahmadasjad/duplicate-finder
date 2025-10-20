@@ -28,16 +28,16 @@ STORAGE_PROVIDERS_CONFIG = {
         "auth_scopes": ["https://www.googleapis.com/auth/drive.readonly"]
     },
     "OneDrive": {
-        "enabled": True,  # Enable to show in dropdown
+        "enabled": False,  # Disabled: Implementation not complete (Coming Soon)
         "requires_auth": True,
-        "description": "Scan files in your OneDrive",
+        "description": "Scan files in your OneDrive (Coming Soon)",
         "features": ["basic_preview", "deletion"],
         "auth_scopes": ["Files.ReadWrite.All"]
     },
     "Dropbox": {
-        "enabled": True,  # Enable to show in dropdown
+        "enabled": False,  # Disabled: Implementation not complete (Coming Soon)
         "requires_auth": True,
-        "description": "Scan files in your Dropbox",
+        "description": "Scan files in your Dropbox (Coming Soon)",
         "features": ["basic_preview", "deletion"]
     }
 }
