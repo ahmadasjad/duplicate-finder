@@ -359,7 +359,11 @@ class GoogleDriveProvider(BaseStorageProvider):
             if total_files == 0:
                 raise NoFileFoundException("No files found in the selected folder")
 
-            self._prefetch_media_for_scan(all_files, update_progress=update_progress)
+            # Only prefetch media if similarity detection is enabled and threshold < 1
+            if filters.enable_similarity_detection and filters.similarity_threshold < 1.0:
+                self._prefetch_media_for_scan(all_files, update_progress=update_progress)
+            else:
+                logger.debug("Skipping media prefetch - exact matching or similarity detection disabled")
 
             if update_progress:
                 update_progress(0.25, f"Found {total_files} files. Analyzing for duplicates...")
