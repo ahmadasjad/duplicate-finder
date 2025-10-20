@@ -59,14 +59,21 @@ def log_scan_summary(*,total_files, processed_files, skipped_no_hash, skipped_fi
         #     logger.info("... and %d more groups", len(duplicates) - 3)
 
 
-class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
-    """Google Drive storage provider with OAuth2 authentication"""
+class GoogleDriveProvider(BaseStorageProvider):
+    """Google Drive storage provider with OAuth2 authentication
+
+    Uses composition to delegate authentication functionality to GoogleAuthenticator,
+    maintaining clear separation of concerns between storage operations and authentication.
+    """
 
     _SCAN_MEDIA_PREFETCH_PROGRESS_PORTION = 0.2
 
     def __init__(self):
-        BaseStorageProvider.__init__(self, "Google Drive")
-        GoogleAuthenticator.__init__(self)
+        super().__init__("Google Drive")
+        # Initialize authentication through composition
+        self.authenticator = GoogleAuthenticator()
+        # Expose google_service for provider operations
+        self.google_service = self.authenticator.google_service
 
     def _run_coroutine(self, awaitable):
         try:
@@ -158,10 +165,10 @@ class GoogleDriveProvider(BaseStorageProvider, GoogleAuthenticator):
             return None
 
         if not self.google_service.is_user_authenticated():
-            if self._handle_authentication_flow():
+            if self.authenticator.handle_authentication_flow():
                 return None
             return None
-        user_info = self._get_user_info()
+        user_info = self.authenticator.get_user_info()
         if user_info:
             st.success(f"✅ Connected to Google Drive as **{user_info['name']}** ({user_info['email']})")
         else:
