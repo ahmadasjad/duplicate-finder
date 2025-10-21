@@ -96,6 +96,9 @@ def is_mounted(path: str = MOUNT_PATH) -> bool:
 
 def _build_rclone_command(remote: str = RCLONE_REMOTE, mount_path: str = MOUNT_PATH) -> list[str]:
     """Construct the rclone mount command as a list for subprocess."""
+    # Allow specifying explicit rclone config file via env var RCLONE_CONFIG_FILE
+    rclone_config = os.getenv("RCLONE_CONFIG_FILE", os.path.expanduser("~/.config/rclone/rclone.conf"))
+
     flags = [
         "--vfs-cache-mode", VFS_CACHE_MODE,
         "--vfs-cache-max-size", VFS_CACHE_MAX_SIZE,
@@ -110,8 +113,11 @@ def _build_rclone_command(remote: str = RCLONE_REMOTE, mount_path: str = MOUNT_P
     if READ_ONLY:
         flags += ["--read-only"]
 
-    # rclone mount remote: mountpoint [flags...]
-    cmd = [RCLONE_BIN, "mount", f"{remote}:", mount_path] + flags
+    # If a config file exists, pass it explicitly to rclone to avoid relying on default locations
+    cmd = [RCLONE_BIN]
+    if rclone_config and os.path.exists(rclone_config):
+        cmd += ["--config", rclone_config]
+    cmd += ["mount", f"{remote}:", mount_path] + flags
     return cmd
 
 
@@ -126,6 +132,37 @@ def mount_google_drive(timeout: int = 30) -> bool:
     if not is_authenticated():
         logger.error("Mount prevented: Google Drive authentication required (missing token).")
         return False
+
+    # Basic check: ensure token.json contains a refresh_token; rclone needs it for long-lived mounts
+    try:
+        import json
+        if os.path.exists(TOKEN_FILE):
+            with open(TOKEN_FILE, "r", encoding="utf-8") as tf:
+                token_obj = json.load(tf)
+            if token_obj and not token_obj.get("refresh_token"):
+                logger.error(
+                    "Mount prevented: token.json does not contain a refresh_token. "
+                    "Re-authenticate via the web flow in the app to obtain a refresh token "
+                    "or run `rclone config reconnect %s:` inside the container after initial auth.",
+                    RCLONE_REMOTE,
+                )
+                return False
+    except Exception as exc:
+        logger.debug("Could not inspect token file for refresh_token: %s", exc)
+
+    # Ensure rclone remote config exists (best-effort)
+    try:
+        from .rclone_config import ensure_rclone_remote
+    except Exception:
+        ensure_rclone_remote = None
+
+    if ensure_rclone_remote:
+        try:
+            ok = ensure_rclone_remote(RCLONE_REMOTE)
+            if not ok:
+                logger.warning("rclone config not created for remote '%s'. Mount will likely fail.", RCLONE_REMOTE)
+        except Exception as exc:
+            logger.debug("Error ensuring rclone config: %s", exc)
 
     if is_mounted(MOUNT_PATH):
         logger.info("Mount point already mounted: %s", MOUNT_PATH)
@@ -142,8 +179,9 @@ def mount_google_drive(timeout: int = 30) -> bool:
     logger.debug("rclone command: %s", " ".join(shlex.quote(p) for p in cmd))
 
     try:
-        # Start rclone as background process
-        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        # Start rclone as background process and capture stderr to log file for diagnostics
+        with open(RCLONE_LOG, "a+") as logf:
+            proc = subprocess.Popen(cmd, stdout=logf, stderr=logf, start_new_session=True)
         _pid_write(proc.pid)
         logger.info("Started rclone process with pid %s", proc.pid)
 
