@@ -78,9 +78,65 @@ def ensure_rclone_remote(remote_name: str = DEFAULT_REMOTE_NAME) -> bool:
     exists or was created successfully, False otherwise.
     """
     try:
-        # If config exists and already contains the remote, nothing to do
+        # If config exists and already contains the remote, attempt to update the token
         if _remote_exists_in_config(RCLONE_CONF_PATH, remote_name):
             logger.debug("rclone_config: remote '%s' already present in %s", remote_name, RCLONE_CONF_PATH)
+            # If we have a fresh token, attempt to inject/update the token line in the existing config
+            if token:
+                try:
+                    # Read existing config
+                    with open(RCLONE_CONF_PATH, "r", encoding="utf-8") as f:
+                        cfg = f.read()
+                    # Locate the remote section
+                    import re
+                    pattern = rf"(?m)^\[{re.escape(remote_name)}\]\s*$"
+                    m = re.search(pattern, cfg)
+                    if m:
+                        start = m.end()
+                        # Find next section header after start
+                        m2 = re.search(r"(?m)^\[.*\]\s*$", cfg[start:])
+                        end = start + m2.start() if m2 else len(cfg)
+                        section = cfg[start:end]
+                        # Build normalized token blob (same logic used when creating new config)
+                        try:
+                            normalized = {}
+                            access_value = token.get("access_token") or token.get("token") or token.get("accessToken")
+                            if access_value:
+                                normalized["access_token"] = access_value
+                            if token.get("refresh_token"):
+                                normalized["refresh_token"] = token.get("refresh_token")
+                            if token.get("token_type"):
+                                normalized["token_type"] = token.get("token_type")
+                            if token.get("expiry"):
+                                normalized["expiry"] = token.get("expiry")
+                            if not normalized and isinstance(token, dict):
+                                normalized = token
+                            token_blob = json.dumps(normalized, separators=(",", ":"))
+                            token_line = f"token = {token_blob}\n"
+                        except Exception:
+                            logger.debug("rclone_config: failed to serialize token for remote '%s' during update", remote_name)
+                            return True
+                        # Replace existing token line if present
+                        if re.search(r"(?m)^\s*token\s*=", section):
+                            section_new = re.sub(r"(?m)^\s*token\s*=.*(?:\r?\n)?", token_line, section)
+                        else:
+                            # Insert token line after client_secret if present, else after type line
+                            m_client = re.search(r"(?m)^\s*client_secret\s*=.*(?:\r?\n)?", section)
+                            if m_client:
+                                insert_offset = m_client.end()
+                            else:
+                                m_type = re.search(r"(?m)^\s*type\s*=.*(?:\r?\n)?", section)
+                                insert_offset = m_type.end() if m_type else 0
+                            section_new = section[:insert_offset] + token_line + section[insert_offset:]
+                        # Rebuild config and write atomically
+                        new_cfg = cfg[:start] + section_new + cfg[end:]
+                        _write_config_atomic(RCLONE_CONF_PATH, new_cfg)
+                        logger.info("rclone_config: updated token for remote '%s' in %s", remote_name, RCLONE_CONF_PATH)
+                        return True
+                except Exception as exc:
+                    logger.error("rclone_config: failed to update token for existing remote '%s': %s", remote_name, exc)
+                    return True
+            # No token to update, nothing more to do
             return True
 
         # Read credentials and token if available
@@ -110,8 +166,28 @@ def ensure_rclone_remote(remote_name: str = DEFAULT_REMOTE_NAME) -> bool:
 
         if token:
             try:
+                # Normalize token to the structure rclone expects.
+                # The app's token.json may use different keys (e.g. "token" instead of "access_token").
+                # Build a minimal dict containing keys rclone understands: access_token, refresh_token, token_type, expiry.
+                normalized = {}
+                # Common possible access token keys from various flows
+                access_value = token.get("access_token") or token.get("token") or token.get("accessToken")
+                if access_value:
+                    normalized["access_token"] = access_value
+                # refresh token
+                if token.get("refresh_token"):
+                    normalized["refresh_token"] = token.get("refresh_token")
+                # token type (optional)
+                if token.get("token_type"):
+                    normalized["token_type"] = token.get("token_type")
+                # expiry (keep as-is if present)
+                if token.get("expiry"):
+                    normalized["expiry"] = token.get("expiry")
+                # If we couldn't map any of the common fields, fall back to writing the original token dict
+                if not normalized and isinstance(token, dict):
+                    normalized = token
                 # rclone expects token to be a JSON blob value (no extra quotes)
-                token_blob = json.dumps(token, separators=(",", ":"))
+                token_blob = json.dumps(normalized, separators=(",", ":"))
                 lines.append(f"token = {token_blob}")
             except Exception:
                 logger.debug("rclone_config: failed to serialize token for remote '%s'", remote_name)

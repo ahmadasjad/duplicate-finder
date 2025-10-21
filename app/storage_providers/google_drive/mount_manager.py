@@ -163,6 +163,8 @@ def mount_google_drive(timeout: int = 30) -> bool:
                 logger.warning("rclone config not created for remote '%s'. Mount will likely fail.", RCLONE_REMOTE)
         except Exception as exc:
             logger.debug("Error ensuring rclone config: %s", exc)
+    else:
+        logger.debug('ensure_rclone_remote is not available')
 
     if is_mounted(MOUNT_PATH):
         logger.info("Mount point already mounted: %s", MOUNT_PATH)
