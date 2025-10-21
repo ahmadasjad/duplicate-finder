@@ -15,8 +15,21 @@ from app.config import GDRIVE_DEFAULT_MEDIA_CONCURRENCY
 logger = logging.getLogger(__name__)
 
 # credentials_file
-CREDENTIALS_FILE = '.local/credentials.json'
-TOKEN_FILE = '.local/token.json'
+# Prefer project-local .local directory (relative to repo root) so behavior is deterministic
+# Compute project root relative to this file (../../.. -> project root)
+_THIS_DIR = os.path.dirname(__file__)
+_PROJECT_ROOT = os.path.abspath(os.path.join(_THIS_DIR, '..', '..', '..'))
+_LOCAL_DIR = os.path.join(_PROJECT_ROOT, '.local')
+
+# Ensure directory exists at runtime (best-effort; callers may still need to create it)
+try:
+    os.makedirs(_LOCAL_DIR, exist_ok=True)
+except Exception:
+    # If we can't create, fall back to user home .local
+    _LOCAL_DIR = os.path.join(os.path.expanduser('~'), '.local')
+
+CREDENTIALS_FILE = os.path.join(_LOCAL_DIR, 'credentials.json')
+TOKEN_FILE = os.path.join(_LOCAL_DIR, 'token.json')
 SCOPES = [
     'https://www.googleapis.com/auth/drive.readonly',
     'https://www.googleapis.com/auth/drive',
